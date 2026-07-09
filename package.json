@@ -1,0 +1,32 @@
+{
+  "name": "raileurope-msc-automation",
+  "version": "1.0.0",
+  "description": "Automated daily Manual Sanity Check (MSC) for Rail Europe B2B + B2C using Playwright. Replaces AI-driven live-browser clicking with deterministic, fast, repeatable checks.",
+  "scripts": {
+    "auth": "playwright test --project=setup --headed",
+    "msc": "playwright test --project=b2b tests/b2b-msc.spec.js",
+    "passes": "playwright test --project=b2b tests/b2b-passes.spec.js",
+    "booking": "playwright test --project=b2b tests/b2b-msc.spec.js -g \"build cart\"",
+    "b2c": "playwright test --project=b2c",
+    "api": "node api-searchability.js",
+    "sanity": "node run-sanity.js",
+    "deck": "node deck/gen.js",
+    "log": "node log-run.js",
+    "weekly": "node weekly-report.js",
+    "report": "playwright show-report report/html"
+  },
+  "keywords": [
+    "raileurope",
+    "msc",
+    "sanity-check",
+    "playwright",
+    "qa"
+  ],
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  },
+  "dependencies": {
+    "pptxgenjs": "^4.0.1"
+  }
+}

@@ -1,0 +1,17 @@
+node_modules/
+storageState.json
+inspect*.js
+# One-off diagnostic/exploration scripts only — NOT api-searchability.js (that's core, tracked).
+api-find.js
+api-smoke.js
+api-stations.js
+explore-*.js
+secrets*.json
+.env*
+*.postman_environment*.json
+report/
+test-results/
+playwright-report/
+run-history.jsonl
+weekly-report.md
+*.log
