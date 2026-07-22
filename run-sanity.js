@@ -21,7 +21,11 @@ const deck = run('node deck/gen.js'); // never blocks the run result; just a war
 console.log('\n=== 4/4 · Log this run to run-history.jsonl (for the weekly report) ===\n');
 run('node log-run.js'); // always logs — even a failed/partial run — so the weekly report stays complete
 
+// Human-readable summary (booking ref, per-check table, sectors, connectivity flags, API
+// detail) — the same breakdown given in chat, so this is useful standalone too.
+run('node print-summary.js');
+
 // Deck refresh is silent on success — only shout if it couldn't update (needs attention).
 const deckNote = deck === 0 ? '' : '  ·  ⚠ DECK NOT UPDATED — close Rail-Europe-MSC-Automation-Overview.pptx and run `npm run deck`';
-console.log(`\n=== sanity done · browser ${b2b === 0 ? 'PASS' : 'FAIL'} · api ${api === 0 ? 'PASS' : 'FAIL'} ===${deckNote}`);
+console.log(`=== sanity done · browser ${b2b === 0 ? 'PASS' : 'FAIL'} · api ${api === 0 ? 'PASS' : 'FAIL'} ===${deckNote}`);
 process.exit(b2b || api ? 1 : 0);

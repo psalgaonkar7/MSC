@@ -83,6 +83,17 @@ npm run report   # open the Playwright HTML report
 npm run auth     # re-do the login capture when your session expires
 ```
 
+**Fully standalone (no AI assistant needed):** `npm run sanity` already prints a
+human-readable summary at the end (booking reference, per-check table, sector list,
+connectivity flags with affected routes, API detail) — the same breakdown you'd get
+if someone summarized it for you. Two double-clickable PowerShell scripts wrap the
+common commands so you never have to remember the Node PATH setup:
+
+```powershell
+.\run-sanity.ps1   # full sanity check, prints the summary, pauses at the end
+.\run-auth.ps1     # login refresh
+```
+
 Reports land in `report/` (gitignored — regenerated every run):
 - `msc-b2b.json` — connectivity flags, SNCF POS results, booking reference, per-sector status
 - `msc-passes.json` — pass search results
