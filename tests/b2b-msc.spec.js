@@ -85,10 +85,11 @@ test('SNCF Connect POS: search-only validation', async ({ page }) => {
   expect(report.sncfPos.every((r) => r.result !== 'ERROR')).toBeTruthy();
 });
 
-test('B2B: build cart and capture booking reference (none expired)', async ({ page }) => {
-  // A rough run (carrier instability) can hit several slow timeouts — give it room to finish
-  // and still report, rather than being killed mid-loop with no reference.
-  test.setTimeout(9 * 60 * 1000);
+test('B2B: build cart, reach Prebooked status (none expired)', async ({ page }) => {
+  // A rough run (carrier instability) can hit several slow timeouts, and filling traveler
+  // details for every sector + pass takes real time too — give it room to finish and still
+  // report, rather than being killed mid-loop with no reference.
+  test.setTimeout(12 * 60 * 1000);
   // Start clean.
   await page.goto('/cart');
   await H.dismissCookies(page);
@@ -155,10 +156,14 @@ test('B2B: build cart and capture booking reference (none expired)', async ({ pa
   const expiriesBefore = await H.cartExpiries(page);
   expect(expiriesBefore.some((t) => t === '00:00:00'), 'no sector should be expired before checkout').toBeFalsy();
 
-  const ref = await H.continueToTravelerDetails(page);
+  // Fill DUMMY traveler details for every sector + pass and proceed through to Hold & Payment,
+  // so the booking reaches "Prebooked" status (not just "Created"). NEVER pays — this is the
+  // new hard stop, one step further than before but strictly before payment.
+  const { ref, status } = await H.continueToPrebooked(page);
   report.booking = ref;
+  report.bookingStatus = status;
 
-  // Verify on the Traveler details page that no sector shows an expired (00:00:00) timer.
+  // Verify no sector shows an expired (00:00:00) timer at this final stage.
   const bodyAfter = await page.locator('body').innerText();
   const expiredCount = (bodyAfter.match(/00:00:00/g) || []).length;
   report.bookingExpiredSectors = expiredCount;
@@ -167,7 +172,7 @@ test('B2B: build cart and capture booking reference (none expired)', async ({ pa
   report.sectorsTotal = journeys.length;
   const dropped = report.sectors.filter((s) => s.status !== 'IN CART');
   const passNote = report.passInBooking && report.passInBooking.status === 'IN CART' ? `+ pass: ${report.passInBooking.product}` : 'pass: none';
-  console.log(`\n[booking] reference=${ref}  trainSectors=${added.length}/${journeys.length}  ${passNote}  expired=${expiredCount}`);
+  console.log(`\n[booking] reference=${ref}  status=${status}  trainSectors=${added.length}/${journeys.length}  ${passNote}  expired=${expiredCount}`);
   console.log(`[booking] IN CART: ${report.sectors.filter((s) => s.status === 'IN CART').map((s) => `#${s.id} ${s.carrier}`).join(', ') || '(none)'}`);
   if (dropped.length) {
     report.issues.push({ type: 'sectors-dropped', detail: dropped });
@@ -176,8 +181,10 @@ test('B2B: build cart and capture booking reference (none expired)', async ({ pa
   }
   console.log('');
   expect(ref, 'a booking reference should be created').toMatch(/^[A-Z]\d{6,}$/);
+  expect(status, 'booking should reach Prebooked status (not just Created)').toMatch(/^Prebooked$/i);
   expect(expiredCount, 'no sector expired in the captured booking').toBe(0);
 
-  // ⛔ HARD STOP. We are on Traveler details. We DO NOT fill payment, DO NOT click any
-  // Pay/Confirm control. The booking reference is the proof of a successful MSC.
+  // ⛔ HARD STOP. We are on Hold & Payment, status Prebooked. We DO NOT click "CONTINUE TO
+  // PAY", DO NOT select/change a payment method, DO NOT touch Allowance, DO NOT fill billing
+  // details. The Prebooked booking reference is the proof of a successful MSC.
 });

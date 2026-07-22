@@ -7,9 +7,13 @@ variance and auto-generated evidence — a booking reference, a Markdown/JSON re
 an auto-updating manager slide deck, and a weekly summary.
 
 > **Safety, always:** the suite **never pays and never confirms a booking**, and
-> **never uses agency allowance**. The B2B flow stops at the *Traveler details* page,
-> which is where the booking reference (`K…`) is created — that reference is the proof
-> of a successful MSC. The API layer is **read-only search**, nothing is ever booked.
+> **never uses agency allowance**. The B2B flow fills *dummy* traveler details (never
+> real PII) for every sector and pass in the cart, then proceeds to the *Hold &
+> Payment* page — one step further than just creating the booking — so the booking
+> reaches status **Prebooked** rather than stopping at `Created`. That is the hard
+> stop: no payment method is ever selected, no billing field is ever touched, and
+> **CONTINUE TO PAY is never clicked**. The API layer is **read-only search**, nothing
+> is ever booked.
 
 ---
 
@@ -18,7 +22,7 @@ an auto-updating manager slide deck, and a weekly summary.
 | # | Check | How |
 |---|---|---|
 | 1 | **Carrier connectivity** | Reads the B2B health-center page; flags any carrier RED/unstable **> 15 min** (SOP rule #1) with the affected route — flags for **manual review only**, nothing is auto-sent anywhere |
-| 2 | **12 point-to-point routes** | Builds all 12 into **one shared cart**, adds **1 randomly-chosen rail pass** (Eurail/Interrail *or* Swiss) to the same cart, and captures **one booking reference** — asserts no sector is expired. Stops before payment. |
+| 2 | **12 point-to-point routes** | Builds all 12 into **one shared cart**, adds **1 randomly-chosen rail pass** (Eurail/Interrail *or* Swiss) to the same cart, fills dummy traveler details for every sector/pass, and proceeds to Hold & Payment — asserts the booking reaches status **Prebooked** and no sector is expired. Never pays. |
 | 3 | **SNCF Connect key-account POS** | Switches POS, runs **search-only** validation for 3 ODs, reverts POS |
 | 4 | **Rail passes searchability** | Confirms Eurail, Interrail (destination "Europe") and Swiss Travel Pass (destination "Switzerland") return real products |
 | 5 | **API searchability (bot-proof)** | Calls the LocoHub search API directly for all 12 routes on **Staging and Production** — no browser, so it isn't affected by anti-bot walls. Self-heals transient timeouts with an automatic re-check. |
@@ -156,13 +160,18 @@ environment files, `report/`, `test-results/`, and one-off diagnostic scripts
 
 ## Safety guardrails (built in, not optional)
 
-- ✅ Never enters payment details or clicks Pay/Confirm
+- ✅ Traveler details are always dummy data (`Sanity Test`, a `donotuse@` email) —
+  never real PII, regardless of how far the flow proceeds
+- ✅ Never selects/changes a payment method, never touches billing fields, and
+  **never clicks CONTINUE TO PAY** — the flow stops on the Hold & Payment page
 - ✅ Never uses agency allowance
 - ✅ The API layer only searches — never books
 - ✅ No booking reference is reported if any sector shows as expired
 - ✅ Login credentials are never typed into, stored by, or logged by any script
 - ✅ Connectivity issues are **flagged for manual review only** — nothing is
   auto-sent to Teams, email, or a ticketing system
+- ✅ The SNCF Connect POS check remains **search-only** — untouched by the
+  Prebooked-flow change
 
 ---
 
@@ -192,5 +201,14 @@ report/                      JSON + HTML output (gitignored, regenerated every r
 - **Carrier instability** (a real carrier being RED/unstable) can occasionally drop a
   sector from the cart; this is flagged, isolated (won't cascade to other sectors), and
   is not a bug in the automation.
+- **Traveler-details confirm can intermittently fail** with a generic backend error
+  ("Sorry, something unexpected happened" / "Error: Something went wrong") on an
+  otherwise-correctly-filled section. Observed across unrelated cart items (a specific
+  Eurail pass product, Swiss Travel Pass, a plain OBB sector) in different runs, with
+  field values confirmed correct via DOM inspection each time — this looks like backend
+  confirm-endpoint instability rather than a script bug. The automation retries 3x per
+  section, then **fails fast with a clear error** naming the booking ref and the exact
+  error text, rather than retrying indefinitely. Worth a bug report if it recurs
+  consistently for one specific product.
 - **B2C UI** cannot be driven directly (anti-bot); covered via the Production API check
   instead.
