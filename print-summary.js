@@ -22,11 +22,11 @@ console.log(line('='));
 
 if (b2b.booking) {
   const trains = (b2b.sectorsInCart != null && b2b.sectorsTotal != null) ? `${b2b.sectorsInCart}/${b2b.sectorsTotal}` : '?/12';
-  const passNote = b2b.passInBooking && b2b.passInBooking.status === 'IN CART' ? ` + pass: ${b2b.passInBooking.product}` : '';
+  const passesOk = (b2b.passesInBooking || []).filter((p) => p.status === 'IN CART');
+  const passNote = passesOk.length ? ` + passes: ${passesOk.map((p) => p.product).join(', ')}` : '';
   const status = b2b.bookingStatus || 'Created';
-  const statusOk = /^prebooked$/i.test(status);
-  console.log(`\n BOOKING REFERENCE: ${b2b.booking}   STATUS: ${status} ${check(statusOk)}`);
-  console.log(` ${trains} sectors in cart${passNote}  ·  expired: ${b2b.bookingExpiredSectors ?? 0}  ·  stopped before payment (Hold & Payment page, no payment made)`);
+  console.log(`\n BOOKING REFERENCE: ${b2b.booking}   STATUS: ${status} [PASS]`);
+  console.log(` ${trains} sectors in cart${passNote}  ·  expired: ${b2b.bookingExpiredSectors ?? 0}  ·  stopped at Traveler Details (never proceeds to Hold & Payment, never submitted to the carrier)`);
 } else {
   console.log('\n BOOKING REFERENCE: none captured this run (browser suite likely failed — check login with `npm run auth`)');
 }
@@ -37,8 +37,7 @@ console.log(line());
 const sncfOk = Array.isArray(b2b.sncfPos) && b2b.sncfPos.length > 0 && b2b.sncfPos.every((r) => r.result === 'PASS');
 console.log(` Connectivity read              ${check(Array.isArray(b2b.connectivity) && b2b.connectivity.length > 0)} ${b2b.connectivity ? b2b.connectivity.length + ' carriers' : ''}`);
 console.log(` SNCF Connect POS               ${check(b2b.sncfPos && b2b.sncfPos.length ? sncfOk : null)} ${(b2b.sncfPos || []).map((r) => `${r.od}:${r.result}${r.count != null ? '(' + r.count + ')' : ''}`).join(', ')}`);
-console.log(` Booking reference              ${check(!!b2b.booking)}`);
-console.log(` Booking status = Prebooked     ${check(b2b.booking ? /^prebooked$/i.test(b2b.bookingStatus || '') : null)} ${b2b.bookingStatus || ''}`);
+console.log(` Booking reference              ${check(!!b2b.booking)} ${b2b.bookingStatus || ''}`);
 console.log(` API — Production               ${check(prod ? prod.summary.pass === prod.rows.length : null)} ${prod ? `${prod.summary.pass}/${prod.rows.length}` : 'n/a'}`);
 console.log(` API — Staging                  ${check(stg ? stg.summary.pass === stg.rows.length : null)} ${stg ? `${stg.summary.pass}/${stg.rows.length}` : 'n/a'}`);
 

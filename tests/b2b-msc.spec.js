@@ -85,11 +85,10 @@ test('SNCF Connect POS: search-only validation', async ({ page }) => {
   expect(report.sncfPos.every((r) => r.result !== 'ERROR')).toBeTruthy();
 });
 
-test('B2B: build cart, reach Prebooked status (none expired)', async ({ page }) => {
-  // A rough run (carrier instability) can hit several slow timeouts, and filling traveler
-  // details for every sector + pass takes real time too — give it room to finish and still
-  // report, rather than being killed mid-loop with no reference.
-  test.setTimeout(12 * 60 * 1000);
+test('B2B: build cart and capture booking reference (none expired)', async ({ page }) => {
+  // A rough run (carrier instability) can hit several slow timeouts — give it room to finish
+  // and still report, rather than being killed mid-loop with no reference.
+  test.setTimeout(10 * 60 * 1000);
   // Start clean.
   await page.goto('/cart');
   await H.dismissCookies(page);
@@ -135,20 +134,22 @@ test('B2B: build cart, reach Prebooked status (none expired)', async ({ page }) 
   }
   expect(added.length, 'at least some sectors should be in the cart').toBeGreaterThan(0);
 
-  // Add ONE rail pass to the SAME cart, randomly choosing which each run:
-  // "Europe" -> Eurail/Interrail Global Pass, "Switzerland" -> Swiss Travel Pass family.
-  // Wrapped so a pass hiccup can never harm the train booking we already have.
-  const passDest = ['Europe', 'Switzerland'][Math.floor(Math.random() * 2)];
-  try {
-    const passName = await H.addPassToCart(page, passDest, DATE);
-    report.passInBooking = { destination: passDest, product: passName, status: 'IN CART' };
-    report.sectors.push({ id: 'PASS', carrier: `PASS/${passDest}`, product: passName, status: 'IN CART' });
-    console.log(`[booking] pass added to cart: ${passName} (${passDest})`);
-  } catch (e) {
-    report.passInBooking = { destination: passDest, status: 'ERROR', error: String(e).split('\n')[0] };
-    report.sectors.push({ id: 'PASS', carrier: `PASS/${passDest}`, status: 'ERROR', error: String(e).split('\n')[0] });
-    console.log(`[booking] pass (${passDest}) did NOT add: ${String(e).split('\n')[0]}`);
-    await page.goto('/cart', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  // Add ALL 3 rail passes to the SAME cart alongside every sector: Eurail Global Pass,
+  // Interrail Global Pass (both "Europe"), and Swiss Travel Pass ("Switzerland"). Each is
+  // wrapped so one pass hiccup can never harm the others or the train sectors already in cart.
+  report.passesInBooking = [];
+  for (const p of data.passesToAdd) {
+    try {
+      const passName = await H.addPassToCart(page, p.destination, DATE, p.productMatch);
+      report.passesInBooking.push({ destination: p.destination, label: p.label, product: passName, status: 'IN CART' });
+      report.sectors.push({ id: 'PASS', carrier: `PASS/${p.label}`, product: passName, status: 'IN CART' });
+      console.log(`[booking] pass added to cart: ${passName} (${p.label})`);
+    } catch (e) {
+      report.passesInBooking.push({ destination: p.destination, label: p.label, status: 'ERROR', error: String(e).split('\n')[0] });
+      report.sectors.push({ id: 'PASS', carrier: `PASS/${p.label}`, status: 'ERROR', error: String(e).split('\n')[0] });
+      console.log(`[booking] pass (${p.label}) did NOT add: ${String(e).split('\n')[0]}`);
+      await page.goto('/cart', { waitUntil: 'domcontentloaded' }).catch(() => {});
+    }
   }
 
   // Capture the booking reference while every sector is still live.
@@ -156,12 +157,15 @@ test('B2B: build cart, reach Prebooked status (none expired)', async ({ page }) 
   const expiriesBefore = await H.cartExpiries(page);
   expect(expiriesBefore.some((t) => t === '00:00:00'), 'no sector should be expired before checkout').toBeFalsy();
 
-  // Fill DUMMY traveler details for every sector + pass and proceed through to Hold & Payment,
-  // so the booking reaches "Prebooked" status (not just "Created"). NEVER pays — this is the
-  // new hard stop, one step further than before but strictly before payment.
-  const { ref, status } = await H.continueToPrebooked(page);
+  // Capture the booking reference from the Traveler Details page and STOP — do not fill
+  // per-sector traveler data or proceed to Hold & Payment. That step submits the order to the
+  // carrier's own booking system (confirmed via LocoHub admin: a real provider PNR/order gets
+  // held on the carrier side, e.g. "Booked. The item has not been purchased."), which is a real
+  // side effect on a third-party system we don't want happening on every automated run. Created
+  // status (cart-side only, nothing sent to the carrier) is the correct and sufficient proof.
+  const ref = await H.continueToTravelerDetails(page);
   report.booking = ref;
-  report.bookingStatus = status;
+  report.bookingStatus = 'Created';
 
   // Verify no sector shows an expired (00:00:00) timer at this final stage.
   const bodyAfter = await page.locator('body').innerText();
@@ -171,8 +175,9 @@ test('B2B: build cart, reach Prebooked status (none expired)', async ({ page }) 
   report.sectorsInCart = added.length;
   report.sectorsTotal = journeys.length;
   const dropped = report.sectors.filter((s) => s.status !== 'IN CART');
-  const passNote = report.passInBooking && report.passInBooking.status === 'IN CART' ? `+ pass: ${report.passInBooking.product}` : 'pass: none';
-  console.log(`\n[booking] reference=${ref}  status=${status}  trainSectors=${added.length}/${journeys.length}  ${passNote}  expired=${expiredCount}`);
+  const passesOk = report.passesInBooking.filter((p) => p.status === 'IN CART');
+  const passNote = passesOk.length ? `+ passes: ${passesOk.map((p) => p.product).join(', ')}` : 'passes: none';
+  console.log(`\n[booking] reference=${ref}  status=Created  trainSectors=${added.length}/${journeys.length}  ${passNote}  expired=${expiredCount}`);
   console.log(`[booking] IN CART: ${report.sectors.filter((s) => s.status === 'IN CART').map((s) => `#${s.id} ${s.carrier}`).join(', ') || '(none)'}`);
   if (dropped.length) {
     report.issues.push({ type: 'sectors-dropped', detail: dropped });
@@ -181,10 +186,10 @@ test('B2B: build cart, reach Prebooked status (none expired)', async ({ page }) 
   }
   console.log('');
   expect(ref, 'a booking reference should be created').toMatch(/^[A-Z]\d{6,}$/);
-  expect(status, 'booking should reach Prebooked status (not just Created)').toMatch(/^Prebooked$/i);
   expect(expiredCount, 'no sector expired in the captured booking').toBe(0);
 
-  // ⛔ HARD STOP. We are on Hold & Payment, status Prebooked. We DO NOT click "CONTINUE TO
-  // PAY", DO NOT select/change a payment method, DO NOT touch Allowance, DO NOT fill billing
+  // ⛔ HARD STOP. We are on Traveler Details, status Created. We do NOT fill traveler data,
+  // do NOT click "CONTINUE TO HOLD & PAYMENT" (that submits the order to the carrier's own
+  // booking system — a real side effect we don't want on every automated run), do NOT touch
   // details. The Prebooked booking reference is the proof of a successful MSC.
 });

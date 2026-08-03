@@ -12,7 +12,10 @@ const prodEnv = (apiRep.envs || []).find((e) => e.label === "PRODUCTION");
 const PROOF = {
   bookingRef: b2b.booking || "K191755412",
   trains: (b2b.sectorsInCart != null && b2b.sectorsTotal != null) ? `${b2b.sectorsInCart}/${b2b.sectorsTotal}` : "12/12",
-  pass: (b2b.passInBooking && b2b.passInBooking.status === "IN CART") ? b2b.passInBooking.product : (b2b.passInBooking ? "none this run" : "Swiss Travel Pass"),
+  pass: (() => {
+    const ok = (b2b.passesInBooking || []).filter((p) => p.status === "IN CART").map((p) => p.product);
+    return ok.length ? ok.join(", ") : (b2b.passesInBooking ? "none this run" : "Eurail Global Pass, Interrail Global Pass, Swiss Travel Pass");
+  })(),
   expired: b2b.bookingExpiredSectors != null ? b2b.bookingExpiredSectors : 0,
   date: b2b.date
     ? new Date(b2b.date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })

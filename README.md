@@ -7,13 +7,15 @@ variance and auto-generated evidence — a booking reference, a Markdown/JSON re
 an auto-updating manager slide deck, and a weekly summary.
 
 > **Safety, always:** the suite **never pays and never confirms a booking**, and
-> **never uses agency allowance**. The B2B flow fills *dummy* traveler details (never
-> real PII) for every sector and pass in the cart, then proceeds to the *Hold &
-> Payment* page — one step further than just creating the booking — so the booking
-> reaches status **Prebooked** rather than stopping at `Created`. That is the hard
-> stop: no payment method is ever selected, no billing field is ever touched, and
-> **CONTINUE TO PAY is never clicked**. The API layer is **read-only search**, nothing
-> is ever booked.
+> **never uses agency allowance**. The B2B flow builds the shared cart and proceeds
+> only as far as the Traveler Details page to capture the booking reference — status
+> `Created`. It deliberately does **not** fill traveler details or click "Continue to
+> Hold & Payment": that step submits the order to the carrier's own booking system
+> (confirmed via LocoHub admin — a real provider PNR/order gets held on the carrier
+> side, e.g. "Booked. The item has not been purchased."), which is a real side effect
+> on a third-party system this daily automation should not trigger. `Created` status
+> (cart-side only, nothing sent to the carrier) is sufficient proof of a working MSC.
+> The API layer is **read-only search**, nothing is ever booked.
 
 ---
 
@@ -22,7 +24,7 @@ an auto-updating manager slide deck, and a weekly summary.
 | # | Check | How |
 |---|---|---|
 | 1 | **Carrier connectivity** | Reads the B2B health-center page; flags any carrier RED/unstable **> 15 min** (SOP rule #1) with the affected route — flags for **manual review only**, nothing is auto-sent anywhere |
-| 2 | **12 point-to-point routes** | Builds all 12 into **one shared cart**, adds **1 randomly-chosen rail pass** (Eurail/Interrail *or* Swiss) to the same cart, fills dummy traveler details for every sector/pass, and proceeds to Hold & Payment — asserts the booking reaches status **Prebooked** and no sector is expired. Never pays. |
+| 2 | **12 point-to-point routes** | Builds all 12 into **one shared cart**, adds **1 randomly-chosen rail pass** (Eurail/Interrail *or* Swiss) to the same cart, proceeds to Traveler Details to capture a single booking reference (status **Created**) — asserts no sector is expired. Stops there; never fills traveler data or proceeds to Hold & Payment. Never pays. |
 | 3 | **SNCF Connect key-account POS** | Switches POS, runs **search-only** validation for 3 ODs, reverts POS |
 | 4 | **Rail passes searchability** | Confirms Eurail, Interrail (destination "Europe") and Swiss Travel Pass (destination "Switzerland") return real products |
 | 5 | **API searchability (bot-proof)** | Calls the LocoHub search API directly for all 12 routes on **Staging and Production** — no browser, so it isn't affected by anti-bot walls. Self-heals transient timeouts with an automatic re-check. |

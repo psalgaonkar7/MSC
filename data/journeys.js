@@ -35,6 +35,15 @@ module.exports = {
     { destination: 'Switzerland', label: 'Swiss Travel Pass',              mustInclude: [/swiss travel pass/i] },
   ],
 
+  // All 3 rail passes added to the SAME B2B cart alongside every sector (used by the booking
+  // test, not the search-only passChecks above). productMatch picks the specific product out of
+  // a destination's multiple results (Continuous/Flex variants) — first match wins.
+  passesToAdd: [
+    { destination: 'Europe',      productMatch: /eurail global/i,      label: 'Eurail Global Pass' },
+    { destination: 'Europe',      productMatch: /interrail global/i,   label: 'Interrail Global Pass' },
+    { destination: 'Switzerland', productMatch: /swiss travel pass/i,  label: 'Swiss Travel Pass' },
+  ],
+
   // SNCF Connect POS test: search-only validation (no booking) for these 3 ODs.
   sncfPosJourneys: [
     { from: { q: 'Berlin',  opt: 'Berlin, Germany' },              to: { q: 'Munich',    opt: 'Munich Hbf, Germany' } },

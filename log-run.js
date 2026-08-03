@@ -19,7 +19,7 @@ const entry = {
   ts: new Date().toISOString(),
   booking: b2b.booking || null,
   trains: (b2b.sectorsInCart != null && b2b.sectorsTotal != null) ? `${b2b.sectorsInCart}/${b2b.sectorsTotal}` : null,
-  pass: (b2b.passInBooking && b2b.passInBooking.status === 'IN CART') ? b2b.passInBooking.product : null,
+  passes: (b2b.passesInBooking || []).filter((p) => p.status === 'IN CART').map((p) => p.product),
   expired: b2b.bookingExpiredSectors != null ? b2b.bookingExpiredSectors : null,
   apiProd: prod ? `${prod.summary.pass}/${prod.rows.length}` : null,
   apiStaging: stg ? `${stg.summary.pass}/${stg.rows.length}` : null,
