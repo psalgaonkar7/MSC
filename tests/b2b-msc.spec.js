@@ -79,8 +79,13 @@ test('SNCF Connect POS: search-only validation', async ({ page }) => {
     }
     report.sncfPos.push(rec);
   }
-  // Revert POS to default: navigating home resets to the Test Profile.
-  await page.goto('/home');
+  // Revert POS to default. NOTE: `page.goto('/home')` alone does NOT do this — the switched
+  // POS is an account/session-level setting, not local page state, so it silently carries over
+  // into the NEXT test's fresh page (same login session) even though that test never touched
+  // POS itself. Confirmed by reproduction: every point-to-point search in the booking test timed
+  // out identically right after this test ran, because it was searching under SNCF Connect's
+  // key-account POS instead of the default Test Profile. Must explicitly switch back.
+  await H.switchPOS(page, data.pos.default);
   console.log('[sncf-pos]', JSON.stringify(report.sncfPos));
   expect(report.sncfPos.every((r) => r.result !== 'ERROR')).toBeTruthy();
 });
@@ -89,13 +94,22 @@ test('B2B: build cart and capture booking reference (none expired)', async ({ pa
   // A rough run (carrier instability) can hit several slow timeouts — give it room to finish
   // and still report, rather than being killed mid-loop with no reference.
   test.setTimeout(10 * 60 * 1000);
-  // Start clean.
+  // Start clean. The cart page shows loading skeletons before real content — checking
+  // isVisible() immediately (no wait) can catch it mid-skeleton and read as "no button", which
+  // silently skips clearing. Confirmed root cause of a stale cart snowballing across runs
+  // (found one at 15 items / €2235, all sectors expired) that then made every subsequent
+  // sector search time out. WAIT for the button (or its real absence) instead of guessing.
   await page.goto('/cart');
   await H.dismissCookies(page);
   const delAll = page.getByRole('button', { name: /^delete all$/i });
-  if (await delAll.isVisible().catch(() => false)) {
-    await delAll.click();
-    await page.getByRole('button', { name: /^delete all$/i }).last().click().catch(() => {});
+  const hasItems = await delAll.first().waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false);
+  if (hasItems) {
+    await delAll.first().click();
+    const confirmBtn = page.getByRole('button', { name: /^delete all$/i }).last();
+    await confirmBtn.waitFor({ state: 'visible', timeout: 10000 });
+    await confirmBtn.click();
+    // Confirm the cart actually emptied — don't just trust the click landed.
+    await delAll.first().waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
   }
   await page.goto('/home');
 
