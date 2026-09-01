@@ -7,9 +7,12 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const data = require('../data/journeys');
-const { futureDate, searchPasses } = require('../lib/helpers');
+const { futureDate, searchPasses, blockNoise } = require('../lib/helpers');
 
 test.describe.configure({ mode: 'serial' });
+
+// Drop unreachable third-party analytics/AB hosts; they add ~38s per page load here.
+test.beforeEach(async ({ context }) => { await blockNoise(context); });
 
 const findings = [];
 

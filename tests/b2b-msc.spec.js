@@ -68,6 +68,9 @@ function persist() {
   fs.writeFileSync('report/msc-b2b.json', JSON.stringify(merged, null, 2));
 }
 
+// Drop unreachable third-party analytics/AB hosts; they add ~38s per page load here.
+test.beforeEach(async ({ context }) => { await H.blockNoise(context); });
+
 test.afterEach(persist);   // flush as we go, so a worker swap can't lose completed work
 test.afterAll(persist);
 
@@ -133,7 +136,10 @@ test('SNCF Connect POS: search-only validation', async ({ page }) => {
         await page.goto('/home');            // clean start each OD (resets POS to default)...
         await H.switchPOS(page, data.pos.sncfConnect); // ...then re-apply SNCF Connect
         await page.locator(H.SEL.from).first().waitFor({ state: 'visible', timeout: 30000 });
-        await page.waitForLoadState('networkidle').catch(() => {});
+        // No waitForLoadState('networkidle') here. The page keeps a third-party request open
+        // for ~38s (kameleoon.io, ERR_CONNECTION_RESET), so networkidle could never settle and
+        // simply burned that time on EVERY OD — it is what made this 3-search check take 4.7
+        // minutes. Waiting for the actual form input above is the real readiness signal.
         await H.searchJourney(page, j, DATE, { withAdult: true }); // form reloads each time, so set adult each time
         const n = await H.resultCount(page);
         rec = { od: `${j.from.q}->${j.to.q}`, result: n > 0 ? 'PASS' : 'NO RESULTS', count: n };
