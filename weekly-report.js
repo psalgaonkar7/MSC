@@ -17,10 +17,14 @@ const trainsN = (t) => (t && /^(\d+)/.test(t)) ? Number(t.match(/^(\d+)/)[1]) : 
 
 const total = rows.length;
 const withBooking = rows.filter((r) => r.booking);
-const clean12 = rows.filter((r) => r.trains === '12/12');
-const partial = rows.filter((r) => r.booking && r.trains && r.trains !== '12/12');
+// Compare the two halves of an "x/y" ratio rather than the literal string "12/12": the sector
+// count is data-driven (it went 12 -> 19 when coverage was expanded to the whole connectivity
+// page), so a hardcoded string silently mis-buckets every run the moment that number changes.
+const isFull = (s) => { const m = /^(\d+)\/(\d+)$/.exec(s || ''); return !!m && m[1] === m[2]; };
+const cleanFull = rows.filter((r) => isFull(r.trains));
+const partial = rows.filter((r) => r.booking && r.trains && !isFull(r.trains));
 const failed = rows.filter((r) => !r.booking);
-const prodPass = rows.filter((r) => r.apiProd === '12/12').length;
+const prodPass = rows.filter((r) => isFull(r.apiProd)).length;
 const prodRuns = rows.filter((r) => r.apiProd).length;
 
 const carrierFlagCount = {};
@@ -36,10 +40,10 @@ md += `## Summary\n\n`;
 md += `| Metric | Value |\n|---|---|\n`;
 md += `| Total runs | ${total} |\n`;
 md += `| Booking reference captured | ${withBooking.length} / ${total} |\n`;
-md += `| Clean 12/12 trains | ${clean12.length} |\n`;
-md += `| Partial cart (<12) | ${partial.length} |\n`;
+md += `| Clean full-cart runs (all sectors) | ${cleanFull.length} |\n`;
+md += `| Partial cart (some sectors dropped) | ${partial.length} |\n`;
 md += `| Failed (no booking) | ${failed.length} |\n`;
-md += `| API Production 12/12 | ${prodPass} / ${prodRuns} runs |\n\n`;
+md += `| API Production all routes PASS | ${prodPass} / ${prodRuns} runs |\n\n`;
 
 md += `## Every run\n\n`;
 md += `| When | Booking | Trains | Pass | API Prod | API Stg | Dropped | Flagged carriers |\n|---|---|---|---|---|---|---|---|\n`;
@@ -52,7 +56,7 @@ if (topFlags.length) md += `- **Most-flagged carriers (RED >15 min):** ${topFlag
 if (topDrops.length) md += `- **Sectors that dropped from the cart:** ${topDrops.map(([s, n]) => `${s} (${n}×)`).join(', ')}\n`;
 else md += `- No sectors dropped this week — every run built the full cart.\n`;
 if (failed.length) md += `- **⚠ ${failed.length} run(s) captured no booking** — investigate (network/login/portal at that time).\n`;
-if (prodRuns && prodPass < prodRuns) md += `- **API production was not 12/12 on ${prodRuns - prodPass} run(s)** — check for transient timeouts vs. real gaps.\n`;
+if (prodRuns && prodPass < prodRuns) md += `- **API production was not all-PASS on ${prodRuns - prodPass} run(s)** — check for transient timeouts vs. real gaps.\n`;
 md += `\n_Note: reflects only runs recorded in run-history.jsonl. Runs done outside \`npm run sanity\` are logged only if \`node log-run.js\` was called._\n`;
 
 fs.writeFileSync(OUT, md);

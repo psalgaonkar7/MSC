@@ -4,6 +4,11 @@
 // the fresh report data. Exits non-zero if the browser or API part failed.
 const { spawnSync } = require('child_process');
 
+// One id for the whole run, inherited by every Playwright worker. The b2b spec merges its
+// report with the on-disk copy only when the ids match, so a worker that Playwright replaces
+// mid-run can't lose the earlier worker's results or pick up a previous run's.
+process.env.MSC_RUN_ID = `${new Date().toISOString()}-${process.pid}`;
+
 function run(cmd) {
   const r = spawnSync(cmd, { stdio: 'inherit', shell: true, cwd: __dirname });
   return r.status == null ? 1 : r.status;
