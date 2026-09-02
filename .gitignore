@@ -6,6 +6,8 @@ api-find.js
 api-smoke.js
 api-stations.js
 explore-*.js
+diag-*.js
+tmp-*.js
 secrets*.json
 .env*
 *.postman_environment*.json

@@ -9,18 +9,34 @@ function readJson(f) { try { return JSON.parse(fs.readFileSync(path.join(REPORT,
 const b2b = readJson("msc-b2b.json") || {};
 const apiRep = readJson("api-searchability.json") || {};
 const prodEnv = (apiRep.envs || []).find((e) => e.label === "PRODUCTION");
+
+// Scope counts come from the test data (and the connectivity read when available) so the
+// slides cannot go stale the way the previously-hardcoded "12 / 3 / 27" did.
+const journeys = (() => { try { return require("../data/journeys"); } catch { return {}; } })();
+const cov = b2b.coverage;
+const SCOPE = {
+  sectors: (journeys.ptpJourneys || []).length || "—",
+  passes: (journeys.passesToAdd || []).length || "—",
+  carriers: cov
+    ? cov.covered.length + cov.excluded.length + cov.pending.length + cov.unmapped.length
+    : new Set((b2b.connectivityRows || []).map((r) => r.carrier)).size || "—",
+};
+
 const PROOF = {
-  bookingRef: b2b.booking || "K191755412",
-  trains: (b2b.sectorsInCart != null && b2b.sectorsTotal != null) ? `${b2b.sectorsInCart}/${b2b.sectorsTotal}` : "12/12",
+  // Several orders now, because the portal caps an order at 15 items.
+  bookingRef: (Array.isArray(b2b.bookings) && b2b.bookings.length)
+    ? b2b.bookings.map((x) => x.ref).join("  +  ")
+    : (b2b.booking || "—"),
+  trains: (b2b.sectorsInCart != null && b2b.sectorsTotal != null) ? `${b2b.sectorsInCart}/${b2b.sectorsTotal}` : "—",
   pass: (() => {
     const ok = (b2b.passesInBooking || []).filter((p) => p.status === "IN CART").map((p) => p.product);
-    return ok.length ? ok.join(", ") : (b2b.passesInBooking ? "none this run" : "Eurail Global Pass, Interrail Global Pass, Swiss Travel Pass");
+    return ok.length ? ok.join(", ") : "none this run";
   })(),
   expired: b2b.bookingExpiredSectors != null ? b2b.bookingExpiredSectors : 0,
   date: b2b.date
     ? new Date(b2b.date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
-    : "2 July 2026",
-  prodApi: prodEnv ? `${prodEnv.summary.pass} / ${prodEnv.rows.length}` : "12 / 12",
+    : "—",
+  prodApi: prodEnv ? `${prodEnv.summary.pass} / ${prodEnv.rows.length}` : "—",
   flags: Array.isArray(b2b.connectivityEscalations) && b2b.connectivityEscalations.length ? b2b.connectivityEscalations : null,
 };
 
@@ -64,10 +80,10 @@ function stat(slide, x, y, w, big, small, color) {
     { text: "From ", options: { color: "CAD2EA" } },
     { text: "~28 minutes by hand", options: { color: WHITE, bold: true } },
     { text: "  →  ", options: { color: RED, bold: true } },
-    { text: "~3 minutes automated", options: { color: WHITE, bold: true } },
+    { text: "~6 minutes automated", options: { color: WHITE, bold: true } },
   ], { x: 0.62, y: 4.25, w: 12, h: 0.6, fontFace: SANS, fontSize: 20, margin: 0 });
   s.addText("Built on — and verified against — the official Manual Sanity Check process", { x: 0.62, y: 4.95, w: 12, h: 0.5, fontFace: SANS, fontSize: 14, italic: true, color: "9AA3C0", margin: 0 });
-  s.addText("Prepared by Pratikesh Salgaonkar   ·   July 2026", { x: 0.62, y: 6.7, w: 12, h: 0.4, fontFace: SANS, fontSize: 12.5, color: "8892B4", margin: 0 });
+  s.addText("Prepared by Pratikesh Salgaonkar   ·   September 2026", { x: 0.62, y: 6.7, w: 12, h: 0.4, fontFace: SANS, fontSize: 12.5, color: "8892B4", margin: 0 });
 })();
 
 // =================================================================== 2. WHY AUTOMATE
@@ -93,7 +109,9 @@ function stat(slide, x, y, w, big, small, color) {
   s.addText("~28 min", { x: 8.35, y: 2.5, w: 4.1, h: 0.9, fontFace: SERIF, fontSize: 46, bold: true, color: WHITE, margin: 0 });
   s.addText("per manual run, every 2 hours", { x: 8.35, y: 3.35, w: 4.1, h: 0.4, fontFace: SANS, fontSize: 13, color: "9AA3C0", margin: 0 });
   s.addShape(pres.shapes.LINE, { x: 8.35, y: 3.95, w: 4.05, h: 0, line: { color: "3A4570", width: 1 } });
-  [["12", "point-to-point routes"], ["3", "rail-pass families"], ["27", "carriers to watch"]].forEach((r, i) => {
+  // Driven off the test data and the latest run, not hardcoded — these counts have already
+  // changed once (12 -> 19 sectors, 3 -> 4 passes) and stale slide numbers are worse than none.
+  [[String(SCOPE.sectors), "point-to-point sectors"], [String(SCOPE.passes), "rail-pass families"], [String(SCOPE.carriers), "carriers to watch"]].forEach((r, i) => {
     s.addText([{ text: r[0], options: { bold: true, color: WHITE } }, { text: "   " + r[1], options: { color: "CAD2EA" } }], { x: 8.35, y: 4.15 + i * 0.47, w: 4.1, h: 0.4, fontFace: SANS, fontSize: 15, margin: 0 });
   });
   s.addText("Goal: reliable, fast, repeatable checks that remove human error.", { x: 8.35, y: 5.7, w: 4.1, h: 0.6, fontFace: SANS, fontSize: 12.5, italic: true, color: WHITE, margin: 0 });
@@ -109,7 +127,7 @@ function stat(slide, x, y, w, big, small, color) {
   s.addText("Browser-driven (Playwright)", { x: 1.6, y: 2.55, w: 4.8, h: 0.35, fontFace: SANS, fontSize: 12.5, italic: true, color: MUTED, margin: 0 });
   s.addText([
     { text: "Mirrors the real agent experience end-to-end", options: { bullet: true, breakLine: true } },
-    { text: "Builds all 12 trains + 1 random pass into one cart", options: { bullet: true, breakLine: true } },
+    { text: `Builds all  sectors +  passes into shared carts`, options: { bullet: true, breakLine: true } },
     { text: "Captures one booking reference — none expired", options: { bullet: true, breakLine: true } },
     { text: "Connectivity flag, SNCF Connect POS & pass search", options: { bullet: true, breakLine: true } },
     { text: "Stops before payment", options: { bullet: true } },
@@ -144,7 +162,7 @@ function stat(slide, x, y, w, big, small, color) {
     { text: ". Every automated step maps to a checklist item.", options: { color: INK } },
   ], { x: 0.6, y: 1.65, w: 12.1, h: 0.5, fontFace: SANS, fontSize: 14, margin: 0 });
   const items = [
-    "Connectivity status page", "12 ODs — search to payment page",
+    "Connectivity status page", "All connectivity carriers — search to booking reference",
     "Salesforce – ERA sync (Groups)", "China portal login",
     "SNCF Connect key-account search", "SBB maintenance status",
     "Daily dropfile check", "Record in the Sanity Tracker",
@@ -172,8 +190,8 @@ function stat(slide, x, y, w, big, small, color) {
   const rows = [
     [H("Official checklist item"), H("Status"), H("Notes")],
     [cell("Connectivity status  +  RED > 15 min rule"), AUTO(), cell("Flags for manual review (nothing auto-sent); maps the OD")],
-    [cell("12 ODs — search to payment page"), AUTO(), cell("12 trains + 1 pass → one booking ref; stops before pay")],
-    [cell("Passes — search + add-to-cart"), AUTO(), cell("Eurail/Interrail/Swiss searched; 1 random pass in the booking")],
+    [cell("All connectivity carriers — search to booking reference"), AUTO(), cell(` sectors +  passes → booking ref per order; stops at Traveler Details`)],
+    [cell("Passes — search + add-to-cart"), AUTO(), cell("Eurail / Interrail / Swiss / BritRail — all searched AND in the booking")],
     [cell("SNCF Connect key-account search"), AUTO(), cell("POS 832072551 · search-only")],
     [cell("SBB maintenance status"), READY(), cell("Public feed confirmed reachable")],
     [cell("Record in the Sanity Tracker"), READY(), cell("JSON + Markdown reports auto-written")],
@@ -311,7 +329,7 @@ function stat(slide, x, y, w, big, small, color) {
   s.addText("In place today", { x: 1.45, y: 2.12, w: 4.9, h: 0.45, fontFace: SANS, fontSize: 17, bold: true, color: INK, margin: 0 });
   s.addText([
     { text: "4 core SOP checks fully automated", options: { bullet: true, breakLine: true } },
-    { text: "12 trains + 1 random pass in one booking", options: { bullet: true, breakLine: true } },
+    { text: ` sectors +  passes, every connectivity carrier covered`, options: { bullet: true, breakLine: true } },
     { text: "Smart RED > 15 min flag (manual review, nothing auto-sent)", options: { bullet: true, breakLine: true } },
     { text: "One command:  npm run sanity", options: { bullet: true, breakLine: true } },
     { text: "On-demand during your monitoring window", options: { bullet: true } },
