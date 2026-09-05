@@ -130,30 +130,57 @@ test('SNCF Connect POS: search-only validation', async ({ page }) => {
   // form (and keeps the POS), which is far more robust than the EDIT SEARCH modify-panel.
   for (const j of data.sncfPosJourneys) {
     let rec = null;
-    // Retry each OD once: a single transient timeout shouldn't fail the whole POS check.
-    for (let attempt = 1; attempt <= 2 && !rec; attempt++) {
-      try {
-        await page.goto('/home');            // clean start each OD (resets POS to default)...
-        await H.switchPOS(page, data.pos.sncfConnect); // ...then re-apply SNCF Connect
-        await page.locator(H.SEL.from).first().waitFor({ state: 'visible', timeout: 30000 });
-        // No waitForLoadState('networkidle') here. The page keeps a third-party request open
-        // for ~38s (kameleoon.io, ERR_CONNECTION_RESET), so networkidle could never settle and
-        // simply burned that time on EVERY OD — it is what made this 3-search check take 4.7
-        // minutes. Waiting for the actual form input above is the real readiness signal.
-        await H.searchJourney(page, j, DATE, { withAdult: true }); // form reloads each time, so set adult each time
-        const n = await H.resultCount(page);
-        rec = { od: `${j.from.q}->${j.to.q}`, result: n > 0 ? 'PASS' : 'NO RESULTS', count: n };
-      } catch (e) {
-        await page.goto('/home').catch(() => {}); // recover before retry / next iteration
-        if (attempt === 2) {
-          // A carrier that the pre-flight already flagged as down will obviously fail here too;
-          // that is a carrier outage, not an SNCF-Connect POS regression, so label it as such.
-          const flaggedNow = new Set((report.connectivityEscalations || []).map((x) => x.carrier.toUpperCase()));
-          const expectedOutage = (j.connectivityNames || []).some((n) => flaggedNow.has(n.toUpperCase()));
-          rec = { od: `${j.from.q}->${j.to.q}`, result: expectedOutage ? 'EXPECTED (carrier flagged)' : 'ERROR',
-            error: String(e).split('\n')[0] };
+    let lastErr = null;
+    // Primary route first, then each verified fallback. Same reasoning as the sectors: one
+    // empty OD says nothing about whether SNCF Connect can sell — only every route failing
+    // does. Zermatt->Chur in particular returns a genuine zero-result, and reporting that as
+    // a POS failure was misleading.
+    const routes = [
+      { ...j, routeLabel: 'primary' },
+      ...(j.alternates || []).map((a, i) => ({ ...j, ...a, routeLabel: `fallback ${i + 1}` })),
+    ];
+    for (const route of routes) {
+      // Retry each route once: a single transient timeout shouldn't discard it.
+      for (let attempt = 1; attempt <= 2 && !rec; attempt++) {
+        try {
+          await page.goto('/home');            // clean start each OD (resets POS to default)...
+          await H.switchPOS(page, data.pos.sncfConnect); // ...then re-apply SNCF Connect
+          await page.locator(H.SEL.from).first().waitFor({ state: 'visible', timeout: 30000 });
+          // No waitForLoadState('networkidle') here. The page keeps a third-party request open
+          // for ~38s (kameleoon.io, ERR_CONNECTION_RESET), so networkidle could never settle and
+          // simply burned that time on EVERY OD — it is what made this 3-search check take 4.7
+          // minutes. Waiting for the actual form input above is the real readiness signal.
+          await H.searchJourney(page, route, DATE, { withAdult: true }); // form reloads each time
+          const n = await H.resultCount(page);
+          if (n > 0) {
+            rec = { od: `${route.from.q}->${route.to.q}`, result: 'PASS', count: n };
+            if (route.routeLabel !== 'primary') {
+              rec.usedFallback = route.routeLabel;
+              rec.primaryOd = `${j.from.q}->${j.to.q}`;
+              console.log(`[sncf-pos] ${rec.primaryOd} was empty; ${route.routeLabel} ${rec.od} returned ${n}`);
+            }
+          } else {
+            lastErr = 'NO RESULTS';
+            break;                              // empty is a final answer for this route
+          }
+        } catch (e) {
+          lastErr = String(e).split('\n')[0];
+          await page.goto('/home').catch(() => {}); // recover before retry / next route
         }
       }
+      if (rec) break;
+    }
+    if (!rec) {
+      // Every route failed — now it means something. A carrier the pre-flight already flagged
+      // as down will obviously fail here too; that is a carrier outage, not a POS regression.
+      const flaggedNow = new Set((report.connectivityEscalations || []).map((x) => x.carrier.toUpperCase()));
+      const expectedOutage = (j.connectivityNames || []).some((n) => flaggedNow.has(n.toUpperCase()));
+      const tried = routes.map((r) => `${r.from.q}->${r.to.q}`).join(' | ');
+      rec = {
+        od: `${j.from.q}->${j.to.q}`,
+        result: expectedOutage ? 'EXPECTED (carrier flagged)' : (lastErr === 'NO RESULTS' ? 'NO RESULTS' : 'ERROR'),
+        error: `all ${routes.length} route(s) failed (${tried}); last: ${lastErr}`,
+      };
     }
     report.sncfPos.push(rec);
   }
@@ -286,22 +313,59 @@ test('B2B: build carts and capture booking references (none expired)', async ({ 
           report.sectors.push({ id: 'PASS', carrier: item.carrier, product: passName, status: 'IN CART', order: b + 1 });
           console.log(`[booking] pass added: ${passName} (${item.label})`);
         } else {
-          // Use the cart's "Add New Products" link once this order HAS items; otherwise search
-          // straight from /home. Stops one failure cascading into the sectors behind it.
-          if (inThisCart > 0) await H.addNewProducts(page);
-          await H.searchJourney(page, item.spec, DATE);
-          const n = await H.resultCount(page);
-          if (n === 0) {
-            report.sectors.push({ id: item.id, carrier: item.carrier, status: flaggedItem ? 'EXPECTED (carrier flagged)' : 'NO RESULTS', order: b + 1 });
+          // Try the primary route, then each verified fallback in turn. A single OD can be
+          // empty for reasons that say nothing about the carrier or the search — a seasonal
+          // gap, a timetable change, engineering works that day — and that used to turn the
+          // whole run red (Zermatt->Chur did exactly that for weeks). A sector is only failed
+          // once EVERY route for that carrier has failed, which is the honest signal.
+          const routes = [
+            { ...item.spec, routeLabel: 'primary' },
+            ...(item.spec.alternates || []).map((a, i) => ({ ...item.spec, ...a, routeLabel: `fallback ${i + 1}` })),
+          ];
+          let placed = null, lastReason = null;
+          for (const [ri, route] of routes.entries()) {
+            try {
+              // Get back to a usable search form before every attempt, not just the first:
+              // a failed attempt can leave us on a results page or mid-flow.
+              if (inThisCart > 0) await H.addNewProducts(page);
+              else if (ri > 0) {
+                await page.goto('/home');
+                await page.locator(H.SEL.from).first().waitFor({ state: 'visible', timeout: 40000 });
+              }
+              await H.searchJourney(page, route, DATE);
+              if (await H.resultCount(page) === 0) { lastReason = 'NO RESULTS'; continue; }
+              let slug = null;
+              if (item.spec.carrierSlug) ({ slug } = await H.addFareForCarrier(page, item.spec.carrierSlug));
+              else await H.addFirstStandardToCart(page);
+              placed = { slug, route };
+              break;
+            } catch (err) {
+              lastReason = String(err).split('\n')[0];
+              if (/maximum number of items/i.test(lastReason)) throw err;   // cap: let the outer handler stop the batch
+            }
+          }
+
+          if (!placed) {
+            // Every route failed — now it is a real finding, not a route quirk.
+            const tried = routes.map((r) => `${r.from.q}->${r.to.q}`).join(' | ');
+            report.sectors.push({
+              id: item.id, carrier: item.carrier,
+              status: flaggedItem ? 'EXPECTED (carrier flagged)' : (lastReason === 'NO RESULTS' ? 'NO RESULTS' : 'ERROR'),
+              error: `all ${routes.length} route(s) failed (${tried}); last: ${lastReason}`,
+              routesTried: routes.length, order: b + 1,
+            });
             continue;
           }
-          // Pick THIS carrier's fare when we know its logo slug, so multi-carrier routes
-          // (Barcelona->Madrid, Rome->Milan) genuinely test each carrier rather than whichever
-          // fare happened to be listed first.
-          let slug = null;
-          if (item.spec.carrierSlug) ({ slug } = await H.addFareForCarrier(page, item.spec.carrierSlug));
-          else await H.addFirstStandardToCart(page);
-          report.sectors.push({ id: item.id, carrier: item.carrier, status: 'IN CART', slug, order: b + 1 });
+
+          const usedFallback = placed.route.routeLabel !== 'primary';
+          if (usedFallback) {
+            console.log(`[booking] ${item.carrier}: primary route failed, succeeded on ${placed.route.routeLabel} (${placed.route.from.q}->${placed.route.to.q})`);
+          }
+          report.sectors.push({
+            id: item.id, carrier: item.carrier, status: 'IN CART', slug: placed.slug,
+            route: `${placed.route.from.q}->${placed.route.to.q}`,
+            usedFallback: usedFallback || undefined, order: b + 1,
+          });
         }
         inThisCart++;
         totalInCart++;

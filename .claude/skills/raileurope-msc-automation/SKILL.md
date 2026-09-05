@@ -74,6 +74,19 @@ script you run. Note `npm auth` is not a valid command; it must be `npm run auth
    B2C itself is anti-bot blocked.
 3. **Manager deck** (`deck/gen.js`) and **run history** (`log-run.js` → `npm run weekly`).
 
+## Fallback routes — read before reporting a sector as failed
+
+Every carrier has verified alternate routes (36 across 19 sectors, plus the 3 SNCF POS ODs),
+tried in order when the primary fails. **A sector is only failed once EVERY route has failed.**
+So a `DROPPED`/`ERROR` line now genuinely means "not sellable on any route we know", not "one
+route was empty" — report it that way. The error text names every route tried and the last
+reason. If a fallback was used, the report says so (`usedFallback`) — mention it, since a
+primary route silently degrading is worth knowing.
+
+Alternates live in the `ALTERNATES` map at the bottom of `data/journeys.js`, keyed by journey
+id. Before adding one, VERIFY it returns products (API search or `tools/discover-carriers.js`);
+never add a guessed OD.
+
 ## Things that are true and non-obvious
 
 - **An order caps at 15 items.** The 16th add-to-cart returns "You have reached the

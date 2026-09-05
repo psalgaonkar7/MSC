@@ -27,21 +27,38 @@ const ENVS = [
   { label: 'PRODUCTION', file: path.join(POSTMAN_DIR, 'LocoHub_Production (ROW_B2B2C).postman_environment 2.json') },
 ];
 
-// The 12 MSC journeys, mapped to LocoHub station codes (resolved via GET /stations).
-const ODS = [
-  { id: 1,  carrier: 'OBB',               route: 'Vienna -> Munich',      from: 'AT:vienna',          to: 'DE:munich' },
-  { id: 2,  carrier: 'DB',                route: 'Berlin -> Munich',      from: 'DE:berlin',          to: 'DE:munich' },
-  { id: 3,  carrier: 'TER/SNCF',          route: 'Paris -> Stuttgart',    from: 'FR:paris',           to: 'DE:stuttgart' },
-  { id: 4,  carrier: 'EUROSTAR',          route: 'London -> Paris',       from: 'GB:london',          to: 'FR:paris' },
-  { id: 5,  carrier: 'LYRIA',             route: 'Geneva -> Paris',       from: 'CH:geneva',          to: 'FR:paris' },
-  { id: 6,  carrier: 'RDG (Avanti)',      route: 'Edinburgh -> London',   from: 'GB:edinburgh',       to: 'GB:london' },
-  { id: 7,  carrier: 'SNCB',              route: 'Brussels -> Mons',      from: 'BE:brussels_midi',   to: 'BE:mons' },
-  { id: 8,  carrier: 'RENFE/IRYO',        route: 'Barcelona -> Madrid',   from: 'ES:barcelona_sants', to: 'ES:madrid_atocha' },
-  { id: 9,  carrier: 'RHB/SBB',           route: 'Zermatt -> Chur',       from: 'CH:zermatt',         to: 'CH:chur' },
-  { id: 10, carrier: 'RegioJet',          route: 'Prague -> Brno',        from: 'CZ:prague',          to: 'CZ:brno' },
-  { id: 11, carrier: 'RegioJet',          route: 'Wien -> Gyor',          from: 'AT:wien_hbf',        to: 'HU:gyor' },
-  { id: 12, carrier: 'TRENITALIA/ITALO',  route: 'Rome -> Milan',         from: 'IT:rome',            to: 'IT:milan' },
-];
+// Routes are DERIVED from data/journeys.js — the same source the browser suite uses.
+// This file used to keep its own hand-maintained copy of the 12 ODs, which is exactly how the
+// two halves drifted apart: when the browser sectors were fixed (Zermatt->Chur replaced with
+// St Moritz->Chur, Bruxelles->Amsterdam with Bruxelles->Berlin) this list still tested the old,
+// permanently-empty routes and reported them as failures.
+//
+// Journeys that share an OD (Barcelona->Madrid is one route serving RENFE, IRYO and OUIGO) are
+// de-duplicated here: the API check validates the SEARCH, and searching the same OD three times
+// proves nothing extra.
+const data = require('./data/journeys');
+const ODS = (() => {
+  const seen = new Map();
+  for (const j of data.ptpJourneys) {
+    if (!j.fromCode || !j.toCode) continue;          // browser-only sector, no station codes
+    const key = `${j.fromCode}>${j.toCode}`;
+    if (seen.has(key)) { seen.get(key).carrier += ` / ${j.carrier}`; continue; }
+    seen.set(key, {
+      id: j.id,
+      carrier: j.carrier,
+      route: `${j.from.q} -> ${j.to.q}`,
+      from: j.fromCode,
+      to: j.toCode,
+      // Environments known to hold no inventory for this OD. Reported as SKIPPED with the
+      // reason instead of counting as a failure — see `skipEnvs` note in data/journeys.js.
+      skipEnvs: j.apiSkipEnvs || [],
+      // Verified fallback ODs, tried in order if the primary comes back empty or errors.
+      alternates: (j.alternates || []).filter((a) => a.fromCode && a.toCode)
+        .map((a) => ({ from: a.fromCode, to: a.toCode, route: `${a.from.q} -> ${a.to.q}` })),
+    });
+  }
+  return [...seen.values()];
+})();
 
 const DAYS_AHEAD = Number(process.env.MSC_DAYS_AHEAD || 45);
 function futureDate(days) { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); }
@@ -76,7 +93,11 @@ async function searchOne(endpoint, token, od, dateStr) {
         method: 'POST',
         headers: { 'Content-Type': 'application/vnd.api+json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(18000),
+        // 45s, not 18s. Staging is genuinely slower than production on the busiest ODs:
+        // Barcelona->Madrid takes ~31s there and returned 10 products when given room, but at
+        // 18s it aborted and was reported as a hard ERROR every run — a false failure caused
+        // purely by the timeout, not by anything wrong with the search.
+        signal: AbortSignal.timeout(45000),
       });
       json = await res.json().catch(() => ({}));
       if (res.status < 500) break;           // 2xx/3xx/4xx are final answers
@@ -125,7 +146,28 @@ async function searchOne(endpoint, token, od, dateStr) {
     // Fire all 12 routes concurrently (read-only search) — far faster than one-by-one,
     // and one slow/dead route no longer holds up the rest.
     const envT0 = Date.now();
-    const rows = await mapPool(ODS, 5, async (od) => ({ ...od, ...(await searchOne(endpoint, token, od, dateStr)) }));
+    const rows = await mapPool(ODS, 5, async (od) => {
+      // A declared inventory gap is not a test failure. Staging carries no Swiss DOMESTIC
+      // inventory at all (verified: Zurich->Bern, Geneva->Zurich, Basel->Zurich, Chur->Tirano
+      // and Zermatt->Chur ALL return 0 products there, while Geneva->Paris — international —
+      // passes). Reporting that as NO RESULTS made staging permanently red for a reason that
+      // has nothing to do with the search working.
+      if (od.skipEnvs.includes(e.label)) {
+        return { ...od, status: 'SKIPPED', http: 0, products: 0, ms: 0, note: `no inventory in ${e.label}` };
+      }
+      // Primary first, then each verified fallback. One empty OD says nothing about whether
+      // search works — only "every route we know for this carrier is empty" does.
+      let res = await searchOne(endpoint, token, od, dateStr);
+      if (res.status === 'PASS') return { ...od, ...res };
+      for (const alt of od.alternates) {
+        const altRes = await searchOne(endpoint, token, alt, dateStr);
+        if (altRes.status === 'PASS') {
+          return { ...od, ...altRes, route: alt.route, usedFallback: true, primaryRoute: od.route, note: `primary "${od.route}" ${res.status}` };
+        }
+        res = altRes;
+      }
+      return { ...od, ...res, allRoutesFailed: od.alternates.length > 0 || undefined };
+    });
 
     // Safeguard against transient blips: a timeout under concurrency isn't a real failure.
     // Re-check any ERRORed route ONCE, sequentially (no contention) — keep ERROR only if it
@@ -141,17 +183,25 @@ async function searchOne(endpoint, token, od, dateStr) {
     }
     const wallSec = ((Date.now() - envT0) / 1000).toFixed(1);
     for (const r of rows) {
-      const tag = r.status === 'PASS' ? 'PASS    ' : r.status === 'NO RESULTS' ? 'NO RESULT' : 'ERROR   ';
+      const tag = r.status === 'PASS' ? 'PASS    ' : r.status === 'NO RESULTS' ? 'NO RESULT'
+                : r.status === 'SKIPPED' ? 'SKIPPED ' : 'ERROR   ';
       let extra = r.status === 'PASS' ? `${r.products} product(s)${r.price ? ', from ' + r.price : ''}`
-                   : r.status === 'ERROR' ? `HTTP ${r.http} ${r.note || ''}` : `HTTP ${r.http}`;
+                   : r.status === 'ERROR' ? `HTTP ${r.http} ${r.note || ''}`
+                   : r.status === 'SKIPPED' ? r.note : `HTTP ${r.http}`;
+      if (r.usedFallback) extra += ` · via fallback (${r.note})`;
+      if (r.allRoutesFailed) extra += ' · all fallback routes also failed';
       if (r.rechecked) extra += r.status === 'ERROR' ? ' · re-checked, still failing' : ' · recovered on re-check';
       console.log(`    [${tag}] #${String(r.id).padStart(2)} ${r.route.padEnd(24)} ${String(r.ms).padStart(5)}ms  ${extra}`);
     }
     const pass = rows.filter((r) => r.status === 'PASS').length;
     const nores = rows.filter((r) => r.status === 'NO RESULTS').length;
     const err = rows.filter((r) => r.status === 'ERROR').length;
-    console.log(`    ---- ${pass} PASS / ${nores} NO-RESULT / ${err} ERROR  (${wallSec}s wall-clock)\n`);
-    reportEnvs.push({ label: e.label, name: env.name, endpoint, dateStr, summary: { pass, noResults: nores, error: err }, rows });
+    const skipped = rows.filter((r) => r.status === 'SKIPPED').length;
+    // `testable` excludes declared inventory gaps, so the headline ratio reflects what this
+    // environment can actually be held to.
+    const testable = rows.length - skipped;
+    console.log(`    ---- ${pass}/${testable} PASS / ${nores} NO-RESULT / ${err} ERROR${skipped ? ` / ${skipped} skipped (no inventory here)` : ''}  (${wallSec}s wall-clock)\n`);
+    reportEnvs.push({ label: e.label, name: env.name, endpoint, dateStr, summary: { pass, noResults: nores, error: err, skipped, testable }, rows });
   }
 
   // Persist machine-readable + markdown report (no secrets).

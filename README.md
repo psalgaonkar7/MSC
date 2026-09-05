@@ -315,6 +315,47 @@ check-login.js             quick standalone check of whether the saved login is 
 report/                    JSON + HTML output (gitignored, regenerated every run)
 ```
 
+## Fallback routes
+
+Every carrier has **verified alternate routes**, tried in order when its primary route fails.
+A sector is only reported as failed once **every** route for that carrier has failed — which is
+the honest signal ("this carrier is not sellable anywhere we know to look") rather than "one
+route happened to be empty today".
+
+This matters because a single OD can be empty for reasons that say nothing about the carrier or
+the search: a seasonal gap, a timetable change, engineering works that day. Before this,
+one such route turned the whole run red — Zermatt→Chur did exactly that for weeks.
+
+- **36 alternates across the 19 sectors**, plus fallbacks on all 3 SNCF POS routes
+- Applied in the **booking test**, the **SNCF POS check** and the **API check**
+- Every alternate OD was verified against the LocoHub production API before being added; the
+  carrier names in the `data/journeys.js` comments are what the API actually returned
+
+When a fallback is used it is stated, not hidden:
+
+```
+[sncf-pos] Zermatt->Chur was empty; fallback 1 Saint Moritz->Chur returned 3
+[PASS] #2 Frankfurt -> Berlin   ·  via fallback (primary "Berlin -> Munich" NO RESULTS)
+```
+
+When every route fails, the report names **each route tried** and the last reason, so "one bad
+route" is distinguishable from "carrier genuinely down".
+
+Add an alternate by appending to the `ALTERNATES` map at the bottom of `data/journeys.js`,
+keyed by journey id. Verify it returns products first — `node tools/discover-carriers.js`, or a
+direct API search — rather than guessing.
+
+## Environment inventory gaps (declared, not failures)
+
+Staging carries **no Swiss domestic and no French regional inventory**. Verified with controls:
+Zurich→Bern, Geneva→Zurich, Basel→Zurich, Chur→Tirano and Zermatt→Chur all return 0 products on
+staging while Geneva→Paris (international) passes; Paris→Rouen and Lyon→Grenoble return 0 while
+Paris→Bordeaux (TGV) returns 9. Production returns results for all of them.
+
+Those ODs are marked `apiSkipEnvs: ['STAGING']` and reported as **SKIPPED with the reason**,
+excluded from that environment's pass ratio. Production still tests them properly. This is a
+data gap in the environment, not a search failure, and reporting it as red said nothing useful.
+
 ## Known limitations
 
 - **Never run two instances at once** — see the warning at the top. One account, one cart,

@@ -21,7 +21,11 @@
 // `tgvinoui`, DB as `dbahn`, TRENITALIA as `trenitalia_frecciarossa`); prefix matching is
 // what makes those provable.
 
-module.exports = {
+// Shorthand for a fallback route. `opt` is matched as a case-insensitive SUBSTRING of the
+// autocomplete suggestion, so short city names here match e.g. "Salzburg Hbf, Austria".
+const R = (fq, fo, fc, tq, to_, tc) => ({ from: { q: fq, opt: fo }, to: { q: tq, opt: to_ }, fromCode: fc, toCode: tc });
+
+const DATA = {
   // ~45 days out keeps us well inside every carrier's booking horizon and your ">=7 days" rule.
   // Overridable with env var MSC_DAYS_AHEAD.
   daysAhead: Number(process.env.MSC_DAYS_AHEAD || 45),
@@ -77,7 +81,14 @@ module.exports = {
     // inventory — sbb_regioexpress / sbb_interregio / sbb_regio / sbb_panoramaexpress. So RHB is
     // covered only INDIRECTLY: we prove the RhB-operated route sells, not that an "RHB" carrier
     // is distinguishable. Do not "fix" this by inventing an rhb slug — there isn't one.
+    //
+    // apiSkipEnvs: STAGING holds NO Swiss domestic inventory whatsoever — verified directly,
+    // Zurich->Bern, Geneva->Zurich, Basel->Zurich, Chur->Tirano and Zermatt->Chur all return 0
+    // products there, while Geneva->Paris (international) passes. So the API check skips this
+    // OD on staging with that reason instead of reporting a permanent red that says nothing
+    // about whether search works. Production still tests it properly (5 products).
     { id: 11, carrier: 'RHB/SBB',          connectivityNames: ['RHB', 'SBB'],       carrierSlug: 'sbb',
+      apiSkipEnvs: ['STAGING'],
       fromCode: 'CH:st_moritz', toCode: 'CH:chur',
       from: { q: 'Saint Moritz', opt: 'Saint Moritz, Switzerland' },          to: { q: 'Chur',      opt: 'Chur, Switzerland' } },
     // REJE and RJET are two RegioJet connectors that the results page renders with the SAME
@@ -113,8 +124,16 @@ module.exports = {
     // discovery (on Geneva->Paris, a Lyria route) does not reappear on domestic TER routes.
     // So this sector proves the route sells; it does NOT prove a carrier called TER served it.
     // Treat TER's coverage as indirect, the same as RHB above, and do not claim otherwise.
+    //
+    // apiSkipEnvs: STAGING carries no French REGIONAL inventory either — Paris->Rouen and
+    // Lyon->Grenoble both return 0 products there while Paris->Bordeaux (TGV, same country)
+    // returns 9, and production returns 6 for both TER routes. Same class of environment data
+    // gap as the Swiss domestic one above, so it is declared rather than reported as a failure.
     { id: 18, carrier: 'TER (regional, unbranded)', connectivityNames: ['TER'],      carrierSlug: null,
-      fromCode: 'FR:paris', toCode: 'FR:rouen',
+      apiSkipEnvs: ['STAGING'],
+      // FR:rouen does not exist as a searchable code (LocoHub answers HTTP 422); the real
+      // station is FR:rouen_rive_droite, matching the browser's "Rouen-Rive-Droite" option.
+      fromCode: 'FR:paris', toCode: 'FR:rouen_rive_droite',
       from: { q: 'Paris',     opt: 'Paris (All stations), France' },          to: { q: 'Rouen',     opt: 'Rouen-Rive-Droite, France' } },
     // SNCF has no `sncf` logo — it sells as TGV INOUI, so that brand slug is the proof.
     { id: 19, carrier: 'SNCF (TGV INOUI)', connectivityNames: ['SNCF'],             carrierSlug: 'tgvinoui',
@@ -164,9 +183,75 @@ module.exports = {
   // `connectivityNames` is carried here too so a POS failure caused by a carrier that is
   // ALREADY flagged down (Zermatt->Chur whenever SBB is out) is reported as an expected
   // outage rather than failing the POS check and reading as an SNCF-Connect regression.
+  // `alternates` here work the same way as for the sectors: the POS check only reports a
+  // failure once every route for that OD has failed. Zermatt->Chur is kept as the primary
+  // because it mirrors the official MSC sheet, but it returns a genuine zero-result, so the
+  // St Moritz->Chur fallback is what actually proves SNCF Connect can sell Swiss rail.
   sncfPosJourneys: [
-    { connectivityNames: ['DB'],          from: { q: 'Berlin',  opt: 'Berlin, Germany' },              to: { q: 'Munich',    opt: 'Munich Hbf, Germany' } },
-    { connectivityNames: ['RHB', 'SBB'],  from: { q: 'Zermatt', opt: 'Zermatt, Switzerland' },         to: { q: 'Chur',      opt: 'Chur, Switzerland' } },
-    { connectivityNames: ['DBSNCF'],      from: { q: 'Paris',   opt: 'Paris (All stations), France' }, to: { q: 'Stuttgart', opt: 'Stuttgart, Germany' } },
+    { connectivityNames: ['DB'],          from: { q: 'Berlin',  opt: 'Berlin, Germany' },              to: { q: 'Munich',    opt: 'Munich Hbf, Germany' },
+      alternates: [R('Frankfurt', 'Frankfurt', 'DE:frankfurt_am_main_hbf', 'Berlin', 'Berlin', 'DE:berlin')] },
+    { connectivityNames: ['RHB', 'SBB'],  from: { q: 'Zermatt', opt: 'Zermatt, Switzerland' },         to: { q: 'Chur',      opt: 'Chur, Switzerland' },
+      alternates: [R('Saint Moritz', 'Saint Moritz', 'CH:st_moritz', 'Chur', 'Chur', 'CH:chur'),
+                   R('Chur', 'Chur', 'CH:chur', 'Tirano', 'Tirano', 'IT:tirano')] },
+    { connectivityNames: ['DBSNCF'],      from: { q: 'Paris',   opt: 'Paris (All stations), France' }, to: { q: 'Stuttgart', opt: 'Stuttgart, Germany' },
+      alternates: [R('Paris', 'Paris (All stations)', 'FR:paris', 'Frankfurt', 'Frankfurt', 'DE:frankfurt_am_main_hbf')] },
   ],
 };
+
+// ---------------------------------------------------------------------------------------
+// FALLBACK ROUTES, keyed by journey id and tried IN ORDER when the primary route fails.
+//
+// Why: a single route can be empty for reasons that say nothing about whether the carrier or
+// the search works — a seasonal gap, a timetable change, engineering works on that specific
+// day. Before this, one such route turned the whole run red (Zermatt->Chur did exactly that
+// for weeks). Now a sector is only reported as failed once EVERY route for that carrier has
+// failed, which is the honest signal: "this carrier is not sellable anywhere we know to look".
+//
+// Every OD below was verified against the LocoHub production API and returned products; the
+// carrier names in the comments are the ones the API actually reported, not assumptions.
+// `opt` is matched as a case-insensitive SUBSTRING of the autocomplete suggestion, so the
+// short city names here match e.g. "Salzburg Hbf, Austria".
+// ---------------------------------------------------------------------------------------
+
+const ALTERNATES = {
+  1:  [R('Vienna','Vienna','AT:vienna','Salzburg','Salzburg','AT:salzburg'),                       // Railjet/Intercity
+       R('Vienna','Vienna','AT:vienna','Graz','Graz','AT:graz')],
+  2:  [R('Frankfurt','Frankfurt','DE:frankfurt_am_main_hbf','Berlin','Berlin','DE:berlin'),
+       R('Hamburg','Hamburg','DE:hamburg','Munich','Munich','DE:munich')],
+  3:  [R('Paris','Paris (All stations)','FR:paris','Frankfurt','Frankfurt','DE:frankfurt_am_main_hbf'), // TGV INOUI + ICE
+       R('Paris','Paris (All stations)','FR:paris','Munich','Munich','DE:munich')],
+  4:  [R('London','London','GB:london','Bruxelles','Bruxelles','BE:brussels_midi'),
+       R('London','London','GB:london','Amsterdam','Amsterdam','NL:amsterdam')],
+  5:  [R('Lausanne','Lausanne','CH:lausanne','Paris','Paris (All stations)','FR:paris'),           // Lyria
+       R('Basel','Basel','CH:basel','Paris','Paris (All stations)','FR:paris')],                   // Lyria
+  6:  [R('London','London','GB:london','Manchester','Manchester','GB:manchester'),                 // Avanti West Coast
+       R('London','London','GB:london','Birmingham','Birmingham','GB:birmingham')],
+  7:  [R('Bruxelles','Bruxelles','BE:brussels_midi','Antwerp','Antwerp','BE:antwerpen_centraal'),
+       R('Bruxelles','Bruxelles','BE:brussels_midi','Liege','Liege','BE:liege_guillemins')],
+  8:  [R('Madrid','Madrid','ES:madrid','Seville','Sevilla','ES:sevilla_santa_justa'),              // Renfe
+       R('Madrid','Madrid','ES:madrid','Valencia','Valencia','ES:valencia')],
+  9:  [R('Madrid','Madrid','ES:madrid','Seville','Sevilla','ES:sevilla_santa_justa'),              // IRYO
+       R('Madrid','Madrid','ES:madrid','Valencia','Valencia','ES:valencia')],
+  10: [R('Madrid','Madrid','ES:madrid','Seville','Sevilla','ES:sevilla_santa_justa')],             // OUIGO ESP
+  11: [R('Chur','Chur','CH:chur','Tirano','Tirano','IT:tirano'),                                   // Bernina line
+       R('Saint Moritz','Saint Moritz','CH:st_moritz','Tirano','Tirano','IT:tirano')],
+  12: [R('Brno','Brno','CZ:brno','Ostrava','Ostrava','CZ:ostrava')],                               // REJE
+  13: [R('Wien','Wien Hbf','AT:wien_hbf','Budapest','Budapest','HU:budapest'),                     // RJET
+       R('Wien','Wien Hbf','AT:wien_hbf','Brno','Brno','CZ:brno')],                                // RJET
+  14: [R('Milan','Milano Centrale','IT:milano_centrale','Naples','Napoli Centrale','IT:napoli_centrale'), // Trenitalia
+       R('Rome','Rome','IT:rome','Florence','Florence','IT:florence')],
+  15: [R('Milan','Milano Centrale','IT:milano_centrale','Naples','Napoli Centrale','IT:napoli_centrale'), // Italo
+       R('Rome','Rome','IT:rome','Florence','Florence','IT:florence')],
+  16: [R('Amsterdam','Amsterdam','NL:amsterdam','Berlin','Berlin','DE:berlin'),
+       R('Bruxelles','Bruxelles','BE:brussels_midi','Prague','Praha','CZ:prague')],
+  17: [R('Prague','Praha','CZ:prague','Olomouc','Olomouc','CZ:olomouc_hl_n'),                      // LEXP
+       R('Prague','Praha','CZ:prague','Bohumin','Bohumin','CZ:bohumin')],                          // LEXP
+  18: [R('Lyon','Lyon','FR:lyon','Grenoble','Grenoble','FR:grenoble'),                             // TER
+       R('Paris','Paris (All stations)','FR:paris','Chartres','Chartres','FR:chartres')],          // TER
+  19: [R('Paris','Paris (All stations)','FR:paris','Lyon','Lyon','FR:lyon'),                       // TGV INOUI
+       R('Paris','Paris (All stations)','FR:paris','Marseille','Marseille','FR:marseille')],
+};
+
+DATA.ptpJourneys.forEach((j) => { j.alternates = ALTERNATES[j.id] || []; });
+
+module.exports = DATA;

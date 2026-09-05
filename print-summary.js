@@ -55,8 +55,10 @@ if (cov) {
 }
 console.log(` SNCF Connect POS               ${check(b2b.sncfPos && b2b.sncfPos.length ? sncfOk : null)} ${(b2b.sncfPos || []).map((r) => `${r.od}:${r.result}${r.count != null ? '(' + r.count + ')' : ''}`).join(', ')}`);
 console.log(` Booking reference              ${check(!!b2b.booking)} ${b2b.bookingStatus || ''}`);
-console.log(` API — Production               ${check(prod ? prod.summary.pass === prod.rows.length : null)} ${prod ? `${prod.summary.pass}/${prod.rows.length}` : 'n/a'}`);
-console.log(` API — Staging                  ${check(stg ? stg.summary.pass === stg.rows.length : null)} ${stg ? `${stg.summary.pass}/${stg.rows.length}` : 'n/a'}`);
+const testable = (e) => (e.summary.testable != null ? e.summary.testable : e.rows.length);
+const skipNote = (e) => (e.summary.skipped ? ` (+${e.summary.skipped} skipped — no inventory there)` : '');
+console.log(` API — Production               ${check(prod ? prod.summary.pass === testable(prod) : null)} ${prod ? `${prod.summary.pass}/${testable(prod)}${skipNote(prod)}` : 'n/a'}`);
+console.log(` API — Staging                  ${check(stg ? stg.summary.pass === testable(stg) : null)} ${stg ? `${stg.summary.pass}/${testable(stg)}${skipNote(stg)}` : 'n/a'}`);
 
 if (Array.isArray(b2b.sectors) && b2b.sectors.length) {
   const EXPECTED = 'EXPECTED (carrier flagged)';
@@ -114,7 +116,7 @@ if (prod || stg) {
   for (const [label, e] of [['Production', prod], ['Staging', stg]]) {
     if (!e) continue;
     const issues = e.rows.filter((r) => r.status !== 'PASS');
-    console.log(`  ${label}: ${e.summary.pass}/${e.rows.length} PASS` + (issues.length ? '' : '  (clean)'));
+    console.log(`  ${label}: ${e.summary.pass}/${(e.summary.testable != null ? e.summary.testable : e.rows.length)} PASS` + (e.summary.skipped ? `  (+${e.summary.skipped} skipped — no inventory there)` : '') + (issues.length ? '' : '  (clean)'));
     issues.forEach((r) => console.log(`    #${r.id} ${r.route} — ${r.status}${r.rechecked ? (r.status === 'ERROR' ? ' (re-checked, still failing)' : ' (recovered on re-check)') : ''}`));
   }
 }
