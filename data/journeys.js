@@ -67,11 +67,19 @@ module.exports = {
     { id: 10, carrier: 'OUIGO',            connectivityNames: ['OUIGO'],            carrierSlug: 'ouigo',
       fromCode: 'ES:barcelona_sants', toCode: 'ES:madrid_atocha',
       from: { q: 'Barcelona', opt: 'Barcelona Sants, Spain' },                to: { q: 'Madrid',    opt: 'Madrid-Puerta De Atocha, Spain' } },
-    // RHB + SBB share this route. Both were unconfirmed at discovery time (SBB was flagged
-    // unstable and RHB unknown), so the slug is a best guess pending a re-probe when they recover.
-    { id: 11, carrier: 'RHB/SBB',          connectivityNames: ['RHB', 'SBB'],       carrierSlug: null,
-      fromCode: 'CH:zermatt', toCode: 'CH:chur',
-      from: { q: 'Zermatt',   opt: 'Zermatt, Switzerland' },                  to: { q: 'Chur',      opt: 'Chur, Switzerland' } },
+    // Zermatt->Chur was replaced: it returns ZERO results (verified live under a real login —
+    // the portal answers "Sorry, there is no result corresponding to your search"), so it could
+    // never prove anything. St Moritz->Chur is the RhB core line and does return inventory.
+    //
+    // carrierSlug is 'sbb', NOT 'rhb', deliberately: this portal has no `rhb` slug at all.
+    // Four RhB-operated routes were checked (Zermatt->Chur, St Moritz->Chur, Chur->Tirano and
+    // St Moritz->Tirano, the last two being the Bernina line) and every one returns SBB-branded
+    // inventory — sbb_regioexpress / sbb_interregio / sbb_regio / sbb_panoramaexpress. So RHB is
+    // covered only INDIRECTLY: we prove the RhB-operated route sells, not that an "RHB" carrier
+    // is distinguishable. Do not "fix" this by inventing an rhb slug — there isn't one.
+    { id: 11, carrier: 'RHB/SBB',          connectivityNames: ['RHB', 'SBB'],       carrierSlug: 'sbb',
+      fromCode: 'CH:st_moritz', toCode: 'CH:chur',
+      from: { q: 'Saint Moritz', opt: 'Saint Moritz, Switzerland' },          to: { q: 'Chur',      opt: 'Chur, Switzerland' } },
     // REJE and RJET are two RegioJet connectors that the results page renders with the SAME
     // `regiojet` logo — but the LocoHub API distinguishes them by route (Prague->Brno returns
     // REJE, Wien->Gyor returns RJET), so keeping both ODs is what actually covers both.
@@ -89,13 +97,23 @@ module.exports = {
       from: { q: 'Rome',      opt: 'Rome, Italy' },                           to: { q: 'Milan',     opt: 'Milano Centrale, Italy' } },
 
     // ---- added to close connectivity-page coverage gaps (slugs confirmed by discovery) ----
+    // Bruxelles->Amsterdam was replaced: it returns results but never the european_sleeper logo
+    // (only sncb + eurostar), so the sector always failed as "carrier not offered". European
+    // Sleeper's Brussels-Amsterdam-Berlin night train IS sold on the Berlin leg — verified live:
+    // Bruxelles->Berlin returns 19 results including the european_sleeper logo.
     { id: 16, carrier: 'EUROPEAN SLEEPER', connectivityNames: ['EUROPEAN SLEEPER'], carrierSlug: 'european_sleeper',
-      fromCode: 'BE:brussels_midi', toCode: 'NL:amsterdam',
-      from: { q: 'Bruxelles', opt: 'Bruxelles/Brussels-Midi, Belgium' },      to: { q: 'Amsterdam', opt: 'Amsterdam, Netherlands' } },
+      fromCode: 'BE:brussels_midi', toCode: 'DE:berlin',
+      from: { q: 'Bruxelles', opt: 'Bruxelles/Brussels-Midi, Belgium' },      to: { q: 'Berlin',    opt: 'Berlin, Germany' } },
     { id: 17, carrier: 'LEO EXPRESS',      connectivityNames: ['LEO EXPRESS'],      carrierSlug: 'leo_express',
       fromCode: 'CZ:prague', toCode: 'CZ:ostrava',
       from: { q: 'Prague',    opt: 'Praha hl.n, Czechia' },                   to: { q: 'Ostrava',   opt: 'Ostrava, Czechia' } },
-    { id: 18, carrier: 'TER',              connectivityNames: ['TER'],              carrierSlug: 'ter',
+    // carrierSlug is null because French regional services carry NO carrier logo in the results
+    // at all. Checked live: Paris->Rouen and Lyon->Grenoble both return real fares with an empty
+    // logo set, and Marseille->Nice shows only tgvinoui. The `ter` slug seen once during
+    // discovery (on Geneva->Paris, a Lyria route) does not reappear on domestic TER routes.
+    // So this sector proves the route sells; it does NOT prove a carrier called TER served it.
+    // Treat TER's coverage as indirect, the same as RHB above, and do not claim otherwise.
+    { id: 18, carrier: 'TER (regional, unbranded)', connectivityNames: ['TER'],      carrierSlug: null,
       fromCode: 'FR:paris', toCode: 'FR:rouen',
       from: { q: 'Paris',     opt: 'Paris (All stations), France' },          to: { q: 'Rouen',     opt: 'Rouen-Rive-Droite, France' } },
     // SNCF has no `sncf` logo — it sells as TGV INOUI, so that brand slug is the proof.
@@ -114,9 +132,9 @@ module.exports = {
   // did not appear on the route tried during discovery, so no OD is asserted rather than
   // guessing one. Re-run `node tools/discover-carriers.js` once they are up.
   pendingDiscovery: [
-    { carrier: 'ARENAWAYS',        note: 'not returned on Torino->Milan; needs another OD' },
-    { carrier: 'CAMPANIA EXPRESS', note: 'flagged DOWN at discovery; Napoli->Sorrento search would not submit' },
-    { carrier: 'SJ',               note: 'flagged UNKNOWN at discovery; Stockholm->Goteborg station text needs fixing' },
+    { carrier: 'ARENAWAYS',        note: 'no logo on Torino->Milan or Torino->Savona (both return trenitalia/italo only). May not be sold on this portal at all — worth confirming with the provider team before hunting more routes.' },
+    { carrier: 'CAMPANIA EXPRESS', note: 'Napoli Centrale->Sorrento returns a genuine zero-result; Napoli Centrale->Pompei returns only a trenitalia logo. No campania* slug seen on any route tried.' },
+    { carrier: 'SJ',               note: 'Stockholm->Gothenburg Central and Stockholm->Malmo both return a genuine zero-result (correct stations selected, verified live). No sj slug seen yet.' },
   ],
 
   // Rail passes to validate (search-only). The PASSES tab is destination-based:
