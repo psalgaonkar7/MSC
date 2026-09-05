@@ -363,5 +363,7 @@ function stat(slide, x, y, w, big, small, color) {
   s.addText("Pratikesh Salgaonkar   ·   psalgaonkar@raileurope.com", { x: 0.82, y: 6.6, w: 12, h: 0.4, fontFace: SANS, fontSize: 12.5, color: "8892B4", margin: 0 });
 })();
 
-const OUT = "C:\\Users\\PSalgaonkar\\OneDrive - RAILEUROPE\\Desktop\\Claude\\Task 1\\Rail-Europe-MSC-Automation-Overview.pptx";
+// Self-locating: this file lives at RE/MSC/deck/, the deck lives at RE/docs/.
+// Keep it relative to __dirname so moving the workspace never breaks it again.
+const OUT = path.join(__dirname, "..", "..", "docs", "Rail-Europe-MSC-Automation-Overview.pptx");
 pres.writeFile({ fileName: OUT }).then(() => console.log("WROTE:", OUT));

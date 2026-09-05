@@ -228,7 +228,28 @@ test('B2B: build carts and capture booking references (none expired)', async ({ 
   // an outage should be confirmed, not assumed — but a resulting failure is reported as
   // expected rather than as a regression, and they are ordered last so a known-bad carrier
   // burning its timeouts cannot delay or destabilise the healthy ones.
-  const flagged = new Set((report.connectivityEscalations || []).map((e) => e.carrier.toUpperCase()));
+  //
+  // report.connectivityEscalations is normally set by the pre-flight test earlier in THIS
+  // module. But Playwright replaces the worker after any test failure, and a replacement
+  // worker re-imports this file into a brand-new process with `report` back at its initial
+  // empty state — so if the SNCF POS test (which runs between pre-flight and this test) fails,
+  // this test can start in a fresh worker that never saw the real escalation list, silently
+  // reporting a genuine flagged-carrier outage as ERROR instead of EXPECTED. Confirmed live:
+  // EUROPEAN SLEEPER was flagged unstable, its sector failed for exactly that reason, and still
+  // got labelled ERROR because the POS test's failure had swapped the worker underneath it.
+  // Fall back to the run-id-matched on-disk report (same gate persist() uses) when the
+  // in-memory list is empty, so a worker swap can't blind this classification.
+  let escalations = report.connectivityEscalations;
+  if (!escalations || !escalations.length) {
+    try {
+      const onDisk = JSON.parse(fs.readFileSync('report/msc-b2b.json', 'utf8'));
+      if (onDisk.runId === RUN_ID && Array.isArray(onDisk.connectivityEscalations)) {
+        escalations = onDisk.connectivityEscalations;
+        console.log(`[sectors] recovered ${escalations.length} connectivity escalation(s) from disk (this worker started fresh after an earlier test failure)`);
+      }
+    } catch { /* no on-disk report yet, or it's from a different run — leave escalations as-is */ }
+  }
+  const flagged = new Set((escalations || []).map((e) => e.carrier.toUpperCase()));
   const isFlagged = (j) => (j.connectivityNames || []).some((n) => flagged.has(n.toUpperCase()));
   journeys = [...journeys].sort((a, b) => (isFlagged(a) ? 1 : 0) - (isFlagged(b) ? 1 : 0));
   if (flagged.size) {

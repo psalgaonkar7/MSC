@@ -1,6 +1,6 @@
 ---
 name: raileurope-msc-automation
-description: Run the Rail Europe B2B Manual Sanity Check (MSC) via this repo's Playwright automation instead of manually driving a browser — section-aware connectivity read, carrier-coverage guard, 19 point-to-point sectors + 4 rail passes built into batched carts, SNCF Connect POS check, and read-only API searchability on staging + production. Use whenever asked to "run the sanity check", "run the MSC", or check Rail Europe B2B/carrier health, and this repo (raileurope-msc-automation) is present.
+description: Run the Rail Europe B2B Manual Sanity Check (MSC) via this repo's Playwright automation instead of manually driving a browser — section-aware connectivity read, carrier-coverage guard, 19 point-to-point sectors + 4 rail passes built into batched carts, SNCF Connect POS check, and read-only API searchability on staging + production. Use whenever asked to "run the sanity check", "run the MSC", or check Rail Europe B2B/carrier health, and this repo (RE\MSC in the C:\Claude workspace) is present.
 ---
 
 # Rail Europe MSC Automation
@@ -9,7 +9,7 @@ Deterministic Playwright replacement for the old "AI drives a live browser" appr
 (~28 min, token-heavy, non-deterministic). This repo covers **every carrier on the
 connectivity page** in **~6 minutes** and produces booking references as evidence.
 
-Repo: https://github.com/psalgaonkar7/MSC.git (primary copy: `C:\Claude\raileurope-msc-automation`)
+Repo: https://github.com/psalgaonkar7/Local.git (primary copy: `RE\MSC` in the `C:\Claude` workspace)
 
 **Safety, always:** never pays, never uses agency allowance, never clicks
 "CONTINUE TO PAY". The flow stops at the **Traveler Details** page — status
@@ -38,7 +38,7 @@ orphan and keep driving the account. Kill the whole process tree by walking desc
 ## Running it
 
 ```bash
-cd C:\Claude\raileurope-msc-automation
+cd C:\Claude\RE\MSC
 export PATH="C:/Users/PSalgaonkar/AppData/Local/nodejs-portable/node-v24.18.0-win-x64:$PATH"
 npm run sanity
 ```
