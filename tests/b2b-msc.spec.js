@@ -354,6 +354,14 @@ test('B2B: build carts and capture booking references (none expired)', async ({ 
               error: `all ${routes.length} route(s) failed (${tried}); last: ${lastReason}`,
               routesTried: routes.length, order: b + 1,
             });
+            const st = flaggedItem ? 'EXPECTED (carrier flagged)' : (lastReason === 'NO RESULTS' ? 'NO RESULTS' : 'ERROR');
+            console.log(`[booking] ${item.carrier} did NOT add [${st}] after ${routes.length} route(s): ${String(lastReason).slice(0, 100)}`);
+            // Recover the page before moving on, same as the catch block below. Without this we
+            // stayed stranded wherever the last attempt died (usually a results page, which has
+            // no ADD NEW PRODUCTS link) and every remaining item in the order inherited it —
+            // that is how one dead sector took 7 down with it on 2026-09-10.
+            if (inThisCart > 0) await page.goto('/cart', { waitUntil: 'domcontentloaded' }).catch(() => {});
+            else { await page.goto('/home').catch(() => {}); await page.locator(H.SEL.from).first().waitFor({ state: 'visible', timeout: 40000 }).catch(() => {}); }
             continue;
           }
 

@@ -76,16 +76,31 @@ script you run. Note `npm auth` is not a valid command; it must be `npm run auth
 
 ## Fallback routes — read before reporting a sector as failed
 
-Every carrier has verified alternate routes (36 across 19 sectors, plus the 3 SNCF POS ODs),
-tried in order when the primary fails. **A sector is only failed once EVERY route has failed.**
-So a `DROPPED`/`ERROR` line now genuinely means "not sellable on any route we know", not "one
-route was empty" — report it that way. The error text names every route tried and the last
-reason. If a fallback was used, the report says so (`usedFallback`) — mention it, since a
-primary route silently degrading is worth knowing.
+Every carrier has verified alternate routes — **101 routes across the 19 sectors** (3 to 6 each),
+plus the 3 SNCF POS ODs — tried in order when the primary fails. Try-order per carrier is
+`primary → ALTERNATES → VERIFIED_EXTRA`, both maps at the bottom of `data/journeys.js`.
+**A sector is only failed once EVERY route has failed.** So a `DROPPED`/`ERROR` line genuinely
+means "not sellable on any route we know", not "one route was empty" — report it that way. The
+error text names every route tried and the last reason. If a fallback was used, the report says
+so (`usedFallback`) — mention it, since a primary route silently degrading is worth knowing.
 
-Alternates live in the `ALTERNATES` map at the bottom of `data/journeys.js`, keyed by journey
-id. Before adding one, VERIFY it returns products (API search or `tools/discover-carriers.js`);
-never add a guessed OD.
+Adding a route requires **both** gates. Never add a guessed OD.
+
+1. **Does the OD sell that carrier?** LocoHub `POST /searches` must return the carrier's own
+   **brand** in `search_connection.transport_name`. Do **not** match on `attributes.carrier`
+   (null on most responses) or `provider` — `provider` is the *aggregator*: SNCF sells through
+   `PAO`, RDG through `Atomised`, Trenitalia through `PICO`, and RegioJet **and** Leo Express
+   both through `Distribusion`.
+2. **Can the OD be typed into the portal?** `node tools/verify-station-labels.js` — read-only,
+   never searches or books. The autocomplete matches `opt` as a **substring**, so a label can
+   match confidently and select the wrong place: `Brugge` → *Brugge (Westf), **Germany***,
+   `Linz` → *Linz (Rhein), **Germany***, `Milano` → Milano Nord Cadorna. The tool checks the
+   resolved option's **country** against the LocoHub code prefix and prints the exact fix line.
+   Run it after **any** edit to `data/journeys.js`.
+
+`ARENAWAYS` and `SJ` have zero searchable stations in the production catalogue (`GET /stations`)
+— that is why discovery finds nothing; it is not a search bug. `CAMPANIA EXPRESS` has stations
+but Naples→Sorrento returns 0 products. All three stay parked.
 
 ## Things that are true and non-obvious
 

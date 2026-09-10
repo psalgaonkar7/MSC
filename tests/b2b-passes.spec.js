@@ -9,21 +9,38 @@ const path = require('path');
 const data = require('../data/journeys');
 const { futureDate, searchPasses, blockNoise } = require('../lib/helpers');
 
-test.describe.configure({ mode: 'serial' });
+// NOT serial: each check owns its page fixture and navigates itself, so they are independent.
+// Under serial mode a single missing product (Eurail, 2026-09-10) SKIPPED the Swiss and BritRail
+// checks — the run then reported nothing at all about two passes that were actually fine.
+// workers:1 already runs them one at a time.
 
 // Drop unreachable third-party analytics/AB hosts; they add ~38s per page load here.
 test.beforeEach(async ({ context }) => { await blockNoise(context); });
 
 const findings = [];
 
+const RUN_ID = process.env.MSC_RUN_ID || 'local';
+const OUT = path.join(__dirname, '..', 'report', 'msc-passes.json');
+
+// Playwright starts a FRESH worker process after a test failure, so this module (and the
+// in-memory `findings`) is reloaded and the surviving tests would otherwise overwrite the
+// file with only their own rows — that is how the failing Eurail check vanished from the
+// report on 2026-09-10. Merge by run id instead, same as tests/b2b-msc.spec.js does.
 test.afterAll(() => {
-  const outDir = path.join(__dirname, '..', 'report');
-  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-  const pass = findings.filter((f) => f.status === 'PASS').length;
-  fs.writeFileSync(
-    path.join(outDir, 'msc-passes.json'),
-    JSON.stringify({ daysAhead: data.daysAhead, summary: { pass, total: findings.length }, findings }, null, 2),
-  );
+  fs.mkdirSync(path.dirname(OUT), { recursive: true });
+  let prior = [];
+  try {
+    const onDisk = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+    if (onDisk.runId === RUN_ID && Array.isArray(onDisk.findings)) prior = onDisk.findings;
+  } catch {}
+  const byLabel = new Map(prior.map((x) => [x.label, x]));
+  for (const x of findings) byLabel.set(x.label, x);
+  const all = data.passChecks
+    .map((c) => byLabel.get(c.label))
+    .filter(Boolean)
+    .concat([...byLabel.values()].filter((x) => !data.passChecks.some((c) => c.label === x.label)));
+  const pass = all.filter((x) => x.status === 'PASS').length;
+  fs.writeFileSync(OUT, JSON.stringify({ runId: RUN_ID, daysAhead: data.daysAhead, summary: { pass, total: all.length }, findings: all }, null, 2));
 });
 
 for (const check of data.passChecks) {

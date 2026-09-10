@@ -13,7 +13,8 @@
     "deck": "node deck/gen.js",
     "log": "node log-run.js",
     "weekly": "node weekly-report.js",
-    "report": "playwright show-report report/html"
+    "report": "playwright show-report report/html",
+    "verify-routes": "node tools/verify-station-labels.js"
   },
   "keywords": [
     "raileurope",

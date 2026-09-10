@@ -235,9 +235,9 @@ const ALTERNATES = {
   10: [R('Madrid','Madrid','ES:madrid','Seville','Sevilla','ES:sevilla_santa_justa')],             // OUIGO ESP
   11: [R('Chur','Chur','CH:chur','Tirano','Tirano','IT:tirano'),                                   // Bernina line
        R('Saint Moritz','Saint Moritz','CH:st_moritz','Tirano','Tirano','IT:tirano')],
-  12: [R('Brno','Brno','CZ:brno','Ostrava','Ostrava','CZ:ostrava')],                               // REJE
+  12: [R('Brno','Brno hl.n.','CZ:brno_hl_n','Ostrava','Ostrava','CZ:ostrava')],                               // REJE
   13: [R('Wien','Wien Hbf','AT:wien_hbf','Budapest','Budapest','HU:budapest'),                     // RJET
-       R('Wien','Wien Hbf','AT:wien_hbf','Brno','Brno','CZ:brno')],                                // RJET
+       R('Wien','Wien Hbf','AT:wien_hbf','Brno','Brno hl.n.','CZ:brno_hl_n')],                                // RJET
   14: [R('Milan','Milano Centrale','IT:milano_centrale','Naples','Napoli Centrale','IT:napoli_centrale'), // Trenitalia
        R('Rome','Rome','IT:rome','Florence','Florence','IT:florence')],
   15: [R('Milan','Milano Centrale','IT:milano_centrale','Naples','Napoli Centrale','IT:napoli_centrale'), // Italo
@@ -252,6 +252,80 @@ const ALTERNATES = {
        R('Paris','Paris (All stations)','FR:paris','Marseille','Marseille','FR:marseille')],
 };
 
-DATA.ptpJourneys.forEach((j) => { j.alternates = ALTERNATES[j.id] || []; });
+// ---------------------------------------------------------------------------------------
+// TIER-2 fallbacks — appended after the ALTERNATES above, so the try-order per carrier is:
+//   primary -> ALTERNATES -> VERIFIED_EXTRA
+//
+// Every OD here was validated against LocoHub PRODUCTION on 2026-09-10 and kept ONLY when the
+// response carried that carrier's OWN BRAND (search_connection.transport_name). Matching on
+// `provider` is NOT enough: it names the aggregator, not the carrier — SNCF sells through PAO,
+// RDG through Atomised, Trenitalia through PICO, RegioJet and Leo Express BOTH through
+// Distribusion. `attributes.carrier` is null on most responses; do not use it.
+//
+// Rejected by that same check, so deliberately absent (re-test before ever adding):
+//   #3  Paris->Strasbourg   domestic TGV INOUI only, no DB leg — not an Alleo route
+//   #11 St Moritz->Zermatt, Chur->Zermatt   0 products (Glacier Express not sold this way)
+//   #13 Wien->Bratislava    OBB Regional Express only, no RegioJet
+//   #16 EUROPEAN SLEEPER    Amsterdam->Prague / ->Dresden / Bruxelles->Dresden all return
+//                           DBahn day trains, never the sleeper. No verified 4th route yet.
+//   #17 Prague->Kosice      RegioJet only, no Leo Express
+//   CAMPANIA EXPRESS        Naples->Sorrento and Porta Nolana->Sorrento return 0 products;
+//                           Naples->Pompei is Trenitalia. Stays in pendingDiscovery.
+//
+// Accented/renamed stations (Malaga, Koln) are avoided on purpose: the browser autocomplete
+// matches `opt` as a substring, so "Malaga" never matches "Malaga-Maria Zambrano".
+// ---------------------------------------------------------------------------------------
+const VERIFIED_EXTRA = {
+  1:  [R('Vienna','Vienna','AT:vienna','Innsbruck','Innsbruck Hbf','AT:innsbruck_hbf'),                // Railjet Xpress
+       R('Vienna','Vienna','AT:vienna','Linz','Linz Hbf','AT:linz_hbf'),                               // Railjet Xpress / IC
+       R('Salzburg','Salzburg','AT:salzburg','Innsbruck','Innsbruck Hbf','AT:innsbruck_hbf')],         // Railjet Xpress
+  2:  [R('Munich','Munich','DE:munich','Frankfurt','Frankfurt','DE:frankfurt_am_main_hbf'),        // ICE
+       R('Berlin','Berlin','DE:berlin','Hamburg','Hamburg','DE:hamburg')],                         // ICE
+  3:  [R('Frankfurt','Frankfurt','DE:frankfurt_am_main_hbf','Paris','Paris (All stations)','FR:paris'), // ICE + TGV (Alleo)
+       R('Stuttgart','Stuttgart','DE:stuttgart','Paris','Paris (All stations)','FR:paris')],       // TGV INOUI + ICE
+  4:  [R('London','London','GB:london','Rotterdam','Rotterdam','NL:rotterdam'),                    // Eurostar
+       R('Paris','Paris (All stations)','FR:paris','London','London','GB:london'),                 // Eurostar
+       R('London','London','GB:london','Lille','Lille','FR:lille_europe')],                        // Eurostar
+  5:  [R('Zurich','Zurich','CH:zurich','Paris','Paris (All stations)','FR:paris'),                 // Lyria
+       R('Paris','Paris (All stations)','FR:paris','Geneva','Geneva','CH:geneva'),                 // Lyria
+       R('Paris','Paris (All stations)','FR:paris','Lausanne','Lausanne','CH:lausanne')],          // Lyria
+  6:  [R('London','London','GB:london','Glasgow','Glasgow','GB:glasgow'),                          // Avanti West Coast
+       R('London','London','GB:london','York','York','GB:york'),                                   // LNER / Hull Trains
+       R('Manchester','Manchester','GB:manchester','London','London','GB:london')],                // Avanti West Coast
+  7:  [R('Bruxelles','Bruxelles','BE:brussels_midi','Gent','Gent','BE:gent_st_pieters'),           // SNCB Intercity
+       R('Bruxelles','Bruxelles','BE:brussels_midi','Bruges','Bruges','BE:brugge_st_pieters'),     // SNCB Intercity
+       R('Antwerp','Antwerp','BE:antwerpen_centraal','Bruxelles','Bruxelles','BE:brussels_midi')], // SNCB Intercity
+  8:  [R('Madrid','Madrid','ES:madrid_atocha','Barcelona','Barcelona','ES:barcelona_sants'),       // AVE
+       R('Barcelona','Barcelona','ES:barcelona_sants','Valencia','Valencia','ES:valencia')],       // Euromed / Intercity
+  9:  [R('Madrid','Madrid','ES:madrid_atocha','Barcelona','Barcelona','ES:barcelona_sants'),       // Iryo
+       R('Madrid','Madrid','ES:madrid','Zaragoza','Zaragoza','ES:zaragoza_delicias')],             // Iryo
+  10: [R('Madrid','Madrid','ES:madrid','Valencia','Valencia','ES:valencia_joaquin_sorolla'),       // OUIGO ESP
+       R('Madrid','Madrid','ES:madrid_atocha','Barcelona','Barcelona','ES:barcelona_sants'),       // OUIGO ESP
+       R('Madrid','Madrid','ES:madrid','Alicante','Alicante','ES:alicante')],                      // OUIGO ESP
+  11: [R('Chur','Chur','CH:chur','Saint Moritz','Saint Moritz','CH:st_moritz')],                     // RhB (sold as SBB)
+  12: [R('Prague','Praha','CZ:prague','Ostrava','Ostrava','CZ:ostrava_hl_n'),                      // RegioJet
+       R('Prague','Praha','CZ:prague','Olomouc','Olomouc','CZ:olomouc_hl_n'),                      // RegioJet
+       R('Brno','Brno hl.n.','CZ:brno_hl_n','Prague','Praha','CZ:prague')],                              // RegioJet
+  13: [R('Budapest','Budapest','HU:budapest','Wien','Wien Hbf','AT:wien_hbf'),                     // RegioJet
+       R('Wien','Wien Hbf','AT:wien_hbf','Prague','Praha','CZ:prague')],                           // RegioJet
+  14: [R('Milan','Milano Centrale','IT:milano_centrale','Rome','Rome','IT:rome'),                                     // Frecciarossa
+       R('Rome','Rome','IT:rome','Naples','Napoli Centrale','IT:napoli_centrale'),                 // Frecciarossa
+       R('Florence','Florence','IT:florence','Venice','Venice','IT:venezia_s_lucia')],   // Regionale / Frecciarossa
+  15: [R('Milan','Milano Centrale','IT:milano_centrale','Rome','Rome','IT:rome'),                                     // Italo
+       R('Rome','Rome','IT:rome','Naples','Napoli Centrale','IT:napoli_centrale'),                 // Italo
+       R('Milan','Milano Centrale','IT:milano_centrale','Florence','Florence','IT:florence')],                        // Italo
+  17: [R('Prague','Praha','CZ:prague','Pardubice','Pardubice','CZ:pardubice_hl_n'),                // Leo Express
+       R('Ostrava','Ostrava','CZ:ostrava_hl_n','Prague','Praha','CZ:prague')],                     // Leo Express
+  18: [R('Marseille','Marseille','FR:marseille','Nice','Nice','FR:nice'),                          // TER (TRAIN ZOU)
+       R('Paris','Paris (All stations)','FR:paris','Amiens','Amiens','FR:amiens'),                 // TER HDF
+       R('Lyon','Lyon','FR:lyon','Marseille','Marseille','FR:marseille')],                         // TER
+  19: [R('Paris','Paris (All stations)','FR:paris','Nantes','Nantes','FR:nantes'),                 // TGV INOUI
+       R('Paris','Paris (All stations)','FR:paris','Lille','Lille','FR:lille'),                    // TGV INOUI
+       R('Paris','Paris (All stations)','FR:paris','Strasbourg','Strasbourg','FR:strasbourg')],    // TGV INOUI
+};
+
+DATA.ptpJourneys.forEach((j) => {
+  j.alternates = [...(ALTERNATES[j.id] || []), ...(VERIFIED_EXTRA[j.id] || [])];
+});
 
 module.exports = DATA;

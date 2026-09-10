@@ -304,7 +304,10 @@ tests/auth.setup.js        one-time manual login -> storageState.json
 tests/b2b-msc.spec.js      connectivity + coverage guard + SNCF POS + batched carts/booking references
 tests/b2b-passes.spec.js   rail pass searchability (Eurail + Interrail + Swiss + BritRail)
 tests/b2c-searchability.spec.js   B2C search checks (blocked by anti-bot; reports as such)
-tools/discover-carriers.js read-only carrier↔route discovery (not part of `npm run sanity`)
+tools/discover-carriers.js     read-only carrier↔route discovery (not part of `npm run sanity`)
+tools/verify-station-labels.js read-only check that every route in data/journeys.js can be
+                               typed into the portal autocomplete AND lands in the right
+                               country — `npm run verify-routes`
 api-searchability.js       read-only LocoHub API check, staging + production
 run-sanity.js              orchestrates: browser suite ‖ API check -> deck refresh -> history log -> summary
 print-summary.js           human-readable end-of-run summary (also runnable standalone)
@@ -326,24 +329,68 @@ This matters because a single OD can be empty for reasons that say nothing about
 the search: a seasonal gap, a timetable change, engineering works that day. Before this,
 one such route turned the whole run red — Zermatt→Chur did exactly that for weeks.
 
-- **36 alternates across the 19 sectors**, plus fallbacks on all 3 SNCF POS routes
+- **101 routes across the 19 sectors** — every carrier has between 3 and 6, plus fallbacks on
+  all 3 SNCF POS routes. Try-order per carrier is `primary → ALTERNATES → VERIFIED_EXTRA`.
 - Applied in the **booking test**, the **SNCF POS check** and the **API check**
-- Every alternate OD was verified against the LocoHub production API before being added; the
-  carrier names in the `data/journeys.js` comments are what the API actually returned
+- Nothing here is guessed. Each OD had to clear **two independent gates**:
+
+| Gate | Tool | What it proves |
+|---|---|---|
+| 1. The OD actually sells that carrier | LocoHub production `POST /searches` | the response carries the carrier's own **brand** (`search_connection.transport_name`) |
+| 2. The OD can actually be typed into the portal | `node tools/verify-station-labels.js` | the `opt` label matches a real autocomplete option **in the right country** |
+
+### Why brand, not provider
+
+`search_connection.attributes.carrier` is **null** on most responses — do not use it.
+`provider` names the *aggregator*, not the carrier: SNCF sells through `PAO`, RDG through
+`Atomised`, Trenitalia through `PICO`, and RegioJet **and** Leo Express both through
+`Distribusion`. Only `transport_name` (the brand: `Frecciarossa`, `Italo`, `Avanti West Coast`,
+`OUIGO ESP`, `Lyria`, `TGV INOUI`) identifies the carrier — and it is the same identity the
+browser matches via `data-select="ptp-carrier-logo-<slug>"`.
+
+### Why gate 2 exists
+
+The autocomplete matches `opt` as a **substring**, so a label can match confidently and still
+select the wrong place. Real examples this caught, all of which had passed gate 1:
+
+- `Brugge` → **Brugge (Westf), *Germany*** (not Bruges, Belgium)
+- `Linz` → **Linz (Rhein), *Germany*** (not Linz Hbf, Austria)
+- `Milano` → Milano Nord Cadorna (a suburban station, not Milano Centrale)
+- `Innsbruck` → Innsbruck Hotting; `Brno` → Brno-Zidenice
+- accents never match at all: `Malaga` ≠ `Málaga-María Zambrano`
+
+Run `node tools/verify-station-labels.js` after **any** edit to `data/journeys.js`. It is
+read-only — it never searches, adds to a cart or books — and it prints the exact fix line for
+anything wrong.
 
 When a fallback is used it is stated, not hidden:
 
 ```
 [sncf-pos] Zermatt->Chur was empty; fallback 1 Saint Moritz->Chur returned 3
-[PASS] #2 Frankfurt -> Berlin   ·  via fallback (primary "Berlin -> Munich" NO RESULTS)
+[booking] RDG: primary route failed, succeeded on fallback 1 (London->Manchester)
 ```
 
 When every route fails, the report names **each route tried** and the last reason, so "one bad
 route" is distinguishable from "carrier genuinely down".
 
-Add an alternate by appending to the `ALTERNATES` map at the bottom of `data/journeys.js`,
-keyed by journey id. Verify it returns products first — `node tools/discover-carriers.js`, or a
-direct API search — rather than guessing.
+### Deliberately absent
+
+Rejected by the gates above — re-test before ever adding, don't reinstate on a hunch:
+
+| Route | Why |
+|---|---|
+| #3 Paris→Strasbourg | domestic TGV INOUI only, no DB leg — not an Alleo route |
+| #11 St Moritz→Zermatt, Chur→Zermatt | 0 products (Glacier Express is not sold this way) |
+| #13 Wien→Bratislava | ÖBB Regional Express only, no RegioJet |
+| #16 EUROPEAN SLEEPER extras | Amsterdam→Prague/→Dresden and Bruxelles→Dresden all return DBahn **day** trains, never the sleeper. Still on 3 routes; no verified 4th yet. |
+| #17 Prague→Kosice | RegioJet only, no Leo Express |
+| CAMPANIA EXPRESS | Naples→Sorrento and Porta Nolana→Sorrento return 0 products; Naples→Pompei is Trenitalia. Stays in `pendingDiscovery`. |
+
+`ARENAWAYS` and `SJ` have **no searchable stations at all** in the production catalogue
+(`GET /stations`), which is why discovery keeps coming up empty — it is not a search bug.
+
+To add an alternate: append to `VERIFIED_EXTRA` at the bottom of `data/journeys.js`, keyed by
+journey id, then run both gates.
 
 ## Environment inventory gaps (declared, not failures)
 
