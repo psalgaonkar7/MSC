@@ -1,6 +1,6 @@
 ---
 name: raileurope-msc-automation
-description: Run the Rail Europe B2B Manual Sanity Check (MSC) via this repo's Playwright automation instead of manually driving a browser — section-aware connectivity read, carrier-coverage guard, 19 point-to-point sectors + 4 rail passes built into batched carts, SNCF Connect POS check, and read-only API searchability on staging + production. Use whenever asked to "run the sanity check", "run the MSC", or check Rail Europe B2B/carrier health, and this repo (RE\MSC in the C:\Claude workspace) is present.
+description: Run the Rail Europe B2B Manual Sanity Check (MSC) via this repo's Playwright automation instead of manually driving a browser — section-aware connectivity read, carrier-coverage guard, 19 point-to-point sectors + 3 rail passes built into batched carts, SNCF Connect POS check, and read-only API searchability on staging + production. Use whenever asked to "run the sanity check", "run the MSC", or check Rail Europe B2B/carrier health, and this repo (RE\MSC in the C:\Claude workspace) is present.
 ---
 
 # Rail Europe MSC Automation
@@ -76,7 +76,7 @@ script you run. Note `npm auth` is not a valid command; it must be `npm run auth
    - **carrier-coverage guard** — every carrier on the page must be booked, passed,
      knowingly excluded, or explicitly pending a route, else `UNMAPPED CARRIER`
    - SNCF Connect POS search-only validation (3 ODs), then switches POS **back explicitly**
-   - **19 sectors + 4 passes** built into batched carts → one booking reference per order
+   - **19 sectors + 3 passes** built into batched carts → one booking reference per order
 2. **API searchability** (`api-searchability.js`): LocoHub API on staging + production.
    Runs **in parallel** with the browser suite. Also how B2C's engine is validated, since
    B2C itself is anti-bot blocked.
@@ -113,7 +113,7 @@ but Naples→Sorrento returns 0 products. All three stay parked.
 ## Things that are true and non-obvious
 
 - **An order caps at 15 items.** The 16th add-to-cart returns "You have reached the
-  maximum number of items in your order". Coverage needs 23, so the run builds multiple
+  maximum number of items in your order". Coverage needs 22, so the run builds multiple
   orders (passes first) and captures a reference for each. This cap was also the real
   cause of the long-running "Swiss Travel Pass randomly times out" symptom.
 - **`workers: 1` is mandatory** in `playwright.config.js`. Only ~13s of the run is

@@ -162,7 +162,11 @@ const DATA = {
   //  - "United Kingdom" returns the BritRail family (the dropdown has no "Great Britain" entry —
   //    that guess is what made the first BritRail attempt time out).
   passChecks: [
-    { destination: 'Europe',        label: 'Eurail + Interrail Global Pass', mustInclude: [/eurail global/i, /interrail global/i] },
+    // Eurail expectation removed 2026-09-13. The Eurail BRAND was retired and replaced by
+    // Interrail in era-offers-passes 1.642.0 (prod 2026-09-10 07:23 UTC) — confirmed intended
+    // by Gaëtan Guillet, who owns the release. Do NOT add /eurail global/i back: it is not a
+    // missing product, it no longer exists. See the Eurail note in README.md.
+    { destination: 'Europe',        label: 'Interrail Global Pass',          mustInclude: [/interrail global/i] },
     { destination: 'Switzerland',   label: 'Swiss Travel Pass',              mustInclude: [/swiss travel pass/i] },
     { destination: 'United Kingdom', label: 'BritRail Pass',                  mustInclude: [/britrail/i] },
   ],
@@ -173,8 +177,13 @@ const DATA = {
   // `connectivityNames` ties each pass back to the Passes inventories section of the
   // health-center page, whose SBB/TRENITALIA entries are separate from the point-to-point ones.
   passesToAdd: [
-    { destination: 'Europe',        productMatch: /eurail global/i,     label: 'Eurail Global Pass',    connectivityNames: ['EURAIL'] },
-    { destination: 'Europe',        productMatch: /interrail global/i,  label: 'Interrail Global Pass', connectivityNames: [] },
+    // The Eurail Global Pass entry was removed 2026-09-13: the brand is retired, not broken.
+    // `EURAIL` still has its own line in the Passes inventories section of the health-center
+    // page (reporting "is up"), so its coverage moves HERE rather than being deleted —
+    // otherwise the coverage guard would correctly report EURAIL as UNMAPPED. The Interrail
+    // Global Pass is what that inventory line now actually sells, so buying it is what proves
+    // the line works. Remove `EURAIL` from here only once it stops appearing on that page.
+    { destination: 'Europe',        productMatch: /interrail global/i,  label: 'Interrail Global Pass', connectivityNames: ['EURAIL'] },
     { destination: 'Switzerland',   productMatch: /swiss travel pass/i, label: 'Swiss Travel Pass',     connectivityNames: ['SBB'] },
     { destination: 'United Kingdom', productMatch: /britrail/i,          label: 'BritRail Pass',         connectivityNames: ['BRITRAIL'] },
   ],

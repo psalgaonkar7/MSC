@@ -35,9 +35,9 @@ has already caused two misdiagnoses. For the same reason `playwright.config.js` 
 |---|---|---|
 | 1 | **Carrier connectivity** | Reads the B2B health-center page **section-aware** (Point-to-point / Passes / Services). Flags any carrier RED/unstable **> 15 min** (SOP rule #1) with the affected route — **manual review only**, nothing is auto-sent anywhere |
 | 2 | **Carrier coverage guard** | Asserts every carrier on the connectivity page is booked, passed, knowingly excluded, or explicitly pending a route. Anything else is reported as **`UNMAPPED CARRIER`** so coverage cannot drift silently when Rail Europe adds a carrier |
-| 3 | **19 point-to-point sectors + 4 rail passes** | Built into shared carts, proceeding to Traveler Details to capture a booking reference per order (status **Created**), asserting no item is expired. Stops there — no traveler data, no Hold & Payment, no payment |
+| 3 | **19 point-to-point sectors + 3 rail passes** | Built into shared carts, proceeding to Traveler Details to capture a booking reference per order (status **Created**), asserting no item is expired. Stops there — no traveler data, no Hold & Payment, no payment |
 | 4 | **SNCF Connect key-account POS** | Switches POS, runs **search-only** validation for 3 ODs, then explicitly switches back |
-| 5 | **Rail passes searchability** | Confirms Eurail + Interrail ("Europe"), Swiss Travel Pass ("Switzerland") and BritRail ("United Kingdom") return real products |
+| 5 | **Rail passes searchability** | Confirms the Interrail Global Pass ("Europe"), Swiss Travel Pass ("Switzerland") and BritRail ("United Kingdom") return real products |
 | 6 | **API searchability (bot-proof)** | Calls the LocoHub search API directly on **Staging and Production** — no browser, so anti-bot walls don't apply. Runs **in parallel** with the browser suite. Self-heals transient timeouts with an automatic re-check |
 | 7 | **Manager deck** | `Rail-Europe-MSC-Automation-Overview.pptx` auto-refreshes its "Proof" slide from the latest run |
 | 8 | **Weekly report** | Every run is logged; `npm run weekly` compiles the week into `weekly-report.md` |
@@ -114,13 +114,13 @@ train is this?"; verification asks "is *our* carrier's brand in these results?".
 The B2B portal **caps an order at 15 items** — the 16th add-to-cart is answered with
 *"You have reached the maximum number of items in your order, please proceed to …"*.
 
-Full coverage needs 23 items (19 sectors + 4 passes), so the run builds **multiple orders**
+Full coverage needs 22 items (19 sectors + 3 passes), so the run builds **multiple orders**
 and captures **a booking reference for each**:
 
 | Order | Contents | Items |
 |---|---|---|
-| 1 | 4 passes + first 11 sectors | 15 |
-| 2 | remaining sectors | 8 |
+| 1 | 3 passes + first 12 sectors | 15 |
+| 2 | remaining sectors | 7 |
 
 **Passes go first** so they can't be squeezed out by sectors filling the cart. Between
 orders the cart is cleared and each order gets its own expiry check and reference.
@@ -174,10 +174,10 @@ that person's permissions can do.
 ## Daily commands
 
 ```bash
-npm run sanity   # EVERYTHING: connectivity + coverage guard + SNCF POS + 19 sectors + 4 passes + API + deck + log
+npm run sanity   # EVERYTHING: connectivity + coverage guard + SNCF POS + 19 sectors + 3 passes + API + deck + log
 npm run booking  # JUST the cart/booking references (fastest path to a K-number)
 npm run msc      # connectivity + SNCF POS + booking references (no API, no deck)
-npm run passes   # rail pass searchability only (Eurail + Interrail + Swiss + BritRail)
+npm run passes   # rail pass searchability only (Interrail + Swiss + BritRail)
 npm run api      # read-only API searchability, staging + production
 npm run deck     # rebuild the manager PowerPoint from the latest report (close the .pptx first if open)
 npm run weekly   # compile run-history.jsonl into weekly-report.md
@@ -223,7 +223,7 @@ Measured on the 2026-09-12 22:00 run (19/19 sectors, 2 booking references, 0 exp
 |---|---|
 | Pre-flight connectivity | ~14s |
 | SNCF Connect POS (3 ODs) | ~1m 33s |
-| Build carts + booking references (23 items) | ~3m 16s |
+| Build carts + booking references (22 items) | ~3m 16s |
 | Pass searchability (3 destinations) | ~16s |
 | API check (staging + production) | runs **in parallel** — adds nothing |
 | **Total** | **~5m 30s** |
@@ -367,10 +367,31 @@ flagged carrier is reported as `EXPECTED (carrier flagged)`, not a regression.
 ### A pass reports ERROR but the others pass
 
 Check the portal's own banner in the failure screenshot under `test-results/`. When it
-reads *"Results are incomplete due to missing products"* and names product codes, that is
-a **platform-side product gap**, not an automation fault — nothing in this repo can fix it,
-and it should be raised with the pass/product team. The Eurail Global Pass has been in
-exactly this state since 2026-09-10.
+reads *"Results are incomplete due to missing products"* and names product codes, the
+product is not being offered — that is a platform-side matter, not an automation fault.
+
+**Establish whether the product still exists before treating it as an outage.** That
+banner is the Partial Offers feature (OVS-19296) reporting what it could not retrieve; it
+says nothing about *why*. A retired brand and a broken supplier look identical through it.
+
+The Eurail Global Pass is the worked example. It vanished on 2026-09-10 and failed six
+consecutive runs. Nothing was erroring — every call returned 200, and no monitor fired.
+What the APM traces showed was a clean handover: calls to
+`/distribution/api/{}/eurail/product-projections/search` stopped and
+`.../interrail/...` started, crossing over in the hour after `era-offers-passes` 1.642.0
+reached production. It was not POS-scoped either — a US point of sale, where Eurail is
+precisely the correct product, saw the same absence. **The Eurail brand had been retired
+and replaced by Interrail**, confirmed by the release owner. The fix was to change our
+expectation, not to chase a bug.
+
+Two things worth stealing from that:
+
+- **A supplier disappearing with no errors anywhere is a strong hint of an intended
+  change**, not an incident. Check APM for a handover to a sibling endpoint before
+  escalating.
+- **Testing a second POS is cheap and decisive.** Identical results across an EU and a
+  non-EU POS rules out the whole class of publication/residency and cache-keying defects
+  in one run.
 
 ### After editing `data/journeys.js`
 
@@ -403,12 +424,12 @@ LH_ONLY=production npm run api        # the ODs still return products
 
 ```
 playwright.config.js       projects: setup (login) / b2b / b2c · workers:1 (shared account) · stamps MSC_RUN_ID
-data/journeys.js           19 sectors + 4 passes + SNCF POS ODs + coverage metadata (edit test data here)
+data/journeys.js           19 sectors + 3 passes + SNCF POS ODs + coverage metadata (edit test data here)
 lib/helpers.js             reusable flow steps: SEL selector map, search, carrier-specific add-to-cart,
                            pass add, POS switch, connectivity parse/flag, coverage guard, blockNoise
 tests/auth.setup.js        one-time manual login -> storageState.json
 tests/b2b-msc.spec.js      connectivity + coverage guard + SNCF POS + batched carts/booking references
-tests/b2b-passes.spec.js   rail pass searchability (Eurail + Interrail + Swiss + BritRail)
+tests/b2b-passes.spec.js   rail pass searchability (Interrail + Swiss + BritRail)
 tests/b2c-searchability.spec.js   B2C search checks (blocked by anti-bot; reports as such)
 tools/discover-carriers.js     read-only carrier↔route discovery (not part of `npm run sanity`)
 tools/verify-station-labels.js read-only check that every route in data/journeys.js can be

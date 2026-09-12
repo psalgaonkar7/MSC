@@ -110,7 +110,7 @@ function stat(slide, x, y, w, big, small, color) {
   s.addText("per manual run, every 2 hours", { x: 8.35, y: 3.35, w: 4.1, h: 0.4, fontFace: SANS, fontSize: 13, color: "9AA3C0", margin: 0 });
   s.addShape(pres.shapes.LINE, { x: 8.35, y: 3.95, w: 4.05, h: 0, line: { color: "3A4570", width: 1 } });
   // Driven off the test data and the latest run, not hardcoded — these counts have already
-  // changed once (12 -> 19 sectors, 3 -> 4 passes) and stale slide numbers are worse than none.
+  // changed more than once (12 -> 19 sectors, 3 -> 4 -> 3 passes) and stale slide numbers are worse than none.
   [[String(SCOPE.sectors), "point-to-point sectors"], [String(SCOPE.passes), "rail-pass families"], [String(SCOPE.carriers), "carriers to watch"]].forEach((r, i) => {
     s.addText([{ text: r[0], options: { bold: true, color: WHITE } }, { text: "   " + r[1], options: { color: "CAD2EA" } }], { x: 8.35, y: 4.15 + i * 0.47, w: 4.1, h: 0.4, fontFace: SANS, fontSize: 15, margin: 0 });
   });
@@ -191,7 +191,7 @@ function stat(slide, x, y, w, big, small, color) {
     [H("Official checklist item"), H("Status"), H("Notes")],
     [cell("Connectivity status  +  RED > 15 min rule"), AUTO(), cell("Flags for manual review (nothing auto-sent); maps the OD")],
     [cell("All connectivity carriers — search to booking reference"), AUTO(), cell(` sectors +  passes → booking ref per order; stops at Traveler Details`)],
-    [cell("Passes — search + add-to-cart"), AUTO(), cell("Eurail / Interrail / Swiss / BritRail — all searched AND in the booking")],
+    [cell("Passes — search + add-to-cart"), AUTO(), cell("Interrail / Swiss / BritRail — all searched AND in the booking")],
     [cell("SNCF Connect key-account search"), AUTO(), cell("POS 832072551 · search-only")],
     [cell("SBB maintenance status"), READY(), cell("Public feed confirmed reachable")],
     [cell("Record in the Sanity Tracker"), READY(), cell("JSON + Markdown reports auto-written")],
@@ -300,7 +300,7 @@ function stat(slide, x, y, w, big, small, color) {
   const mini = [
     ["Random pass in booking", PROOF.pass, "added to same cart", GREEN],
     ["API — Production", `${PROOF.prodApi} routes`, "~10s (parallel)", GREEN],
-    ["Passes searched", "4 + 31 products", "Eurail/Interrail/Swiss", GREEN],
+    ["Passes searched", "3 + 36 products", "Interrail/Swiss/BritRail", GREEN],
     ["Runtime", "~3.3 min", "end-to-end", RED],
   ];
   const cw = 3.9, ch = 1.02, gx = 0.28;
