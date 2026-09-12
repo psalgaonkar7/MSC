@@ -9,7 +9,8 @@ Deterministic Playwright replacement for the old "AI drives a live browser" appr
 (~28 min, token-heavy, non-deterministic). This repo covers **every carrier on the
 connectivity page** in **~6 minutes** and produces booking references as evidence.
 
-Repo: https://github.com/psalgaonkar7/Local.git (primary copy: `RE\MSC` in the `C:\Claude` workspace)
+Repo: https://github.com/psalgaonkar7/MSC.git — renamed from `Local.git`, which GitHub still
+redirects (primary copy: `RE\MSC` in the `C:\Claude` workspace)
 
 **Safety, always:** never pays, never uses agency allowance, never clicks
 "CONTINUE TO PAY". The flow stops at the **Traveler Details** page — status
@@ -37,11 +38,18 @@ orphan and keep driving the account. Kill the whole process tree by walking desc
 
 ## Running it
 
-```bash
+Node is on this machine's system PATH, so **CMD, PowerShell and Git Bash all work with the
+same two lines** — no PATH setup needed:
+
+```
 cd C:\Claude\RE\MSC
-export PATH="C:/Users/PSalgaonkar/AppData/Local/nodejs-portable/node-v24.18.0-win-x64:$PATH"
 npm run sanity
 ```
+
+Do **not** hand the user an `export PATH=...` line: that is Git-Bash-only and fails in CMD
+with `'export' is not recognized`. If `node -v` ever fails, the CMD form is
+`set "PATH=C:\Users\PSalgaonkar\AppData\Local\nodejs-portable\node-v24.18.0-win-x64;%PATH%"`
+and the PowerShell form uses `$env:PATH`.
 
 Takes ~6 min. Running it in the background is fine — it's a real Playwright process,
 not something driven through the browser-pane MCP tools, so don't use `Claude_Browser`

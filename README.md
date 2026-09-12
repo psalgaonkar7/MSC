@@ -2,7 +2,7 @@
 
 Deterministic, repeatable **Manual Sanity Check** for Rail Europe **B2B**.
 Replaces "an AI clicking the live browser" (~28 min, non-deterministic) with a real
-test suite that covers **every carrier on the connectivity page** in **~6 minutes**,
+test suite that covers **every carrier on the connectivity page** in **~5.5 minutes**,
 with zero human-error variance and auto-generated evidence — booking references, a
 Markdown/JSON report, an auto-updating manager slide deck, and a weekly summary.
 
@@ -99,8 +99,13 @@ Read-only (search only, never adds to a cart). For each route it reports the aut
 option it chose and every carrier logo slug the results contain, then writes
 `report/carrier-discovery.json`. It deliberately does **not** auto-assign carriers to
 routes: the LocoHub API reports train *brands* ("Railjet Xpress", "ICE", "TGV INOUI",
-"Intercity") which don't map cleanly onto operator codes, so that mapping stays a human
-decision.
+"Intercity"), and deciding which operator a brand belongs to is a human call — that is
+**discovery**, for a carrier we have no route for yet.
+
+Do not confuse that with **verification** of a carrier we already know (see
+[Fallback routes](#fallback-routes)). There the brand is exactly the right thing to match
+on, because we already know which brands belong to that operator. Discovery asks "whose
+train is this?"; verification asks "is *our* carrier's brand in these results?".
 
 ---
 
@@ -178,6 +183,8 @@ npm run deck     # rebuild the manager PowerPoint from the latest report (close 
 npm run weekly   # compile run-history.jsonl into weekly-report.md
 npm run report   # open the Playwright HTML report
 npm run auth     # re-do the login capture when your session expires
+npm run verify-routes   # check every route in data/journeys.js is typeable in the portal
+node check-login.js     # ~10s: is the saved session still valid? run this BEFORE a long run
 ```
 
 Handy env vars: `MSC_MAX_SECTORS=4` (validate the flow on a subset first),
@@ -210,20 +217,33 @@ merge conflicts.
 
 ## Runtime (measured)
 
+Measured on the 2026-09-12 22:00 run (19/19 sectors, 2 booking references, 0 expired):
+
 | Step | Time |
 |---|---|
-| Pre-flight connectivity | ~7s |
-| SNCF Connect POS (3 ODs) | ~1m 51s |
-| Build carts + booking references (23 items) | ~3m 37s |
-| Pass searchability (4 destinations) | ~10s |
+| Pre-flight connectivity | ~14s |
+| SNCF Connect POS (3 ODs) | ~1m 33s |
+| Build carts + booking references (23 items) | ~3m 16s |
+| Pass searchability (3 destinations) | ~16s |
 | API check (staging + production) | runs **in parallel** — adds nothing |
-| **Total** | **~6 min** |
+| **Total** | **~5m 30s** |
 
-Previously ~8.5 min. The gain came from removing dead waiting, not from parallelism:
-the POS check was calling `waitForLoadState('networkidle')`, which could never settle
-because the page keeps a third-party request open for ~38s
-(`kameleoon.io/engine.js`, `ERR_CONNECTION_RESET`). `blockNoise()` now aborts those
-analytics/AB hosts at the browser-context level, which speeds up every page load.
+Deepening the fallback chains from 55 to 101 routes cost nothing: alternates are only
+tried when a primary fails, and on this run every primary worked.
+
+Two separate things got us here from ~8.5 min:
+
+1. **Removing dead waiting, not adding parallelism.** The POS check was calling
+   `waitForLoadState('networkidle')`, which could never settle because the page keeps a
+   third-party request open for ~38s (`kameleoon.io/engine.js`, `ERR_CONNECTION_RESET`).
+   `blockNoise()` now aborts those analytics/AB hosts at the browser-context level,
+   which speeds up every page load.
+2. **Fixing a failure cascade in the cart build.** `addNewProducts()` returns to the
+   search form via the cart page's ADD NEW PRODUCTS link — but a failed sector left the
+   browser on a *results* page, where that link does not exist, so every later item in
+   the same order waited the full 20s for a link that could never appear. One dead route
+   took 7 sectors down with it on 2026-09-10 and burnt ~6 min of an 8.3 min run. It now
+   navigates back to the cart first, and falls back to `/home`. Cart build: **196s vs 500s**.
 
 ### Why not more workers?
 
@@ -268,12 +288,98 @@ handling with your security team. Not required for day-to-day on-demand use.
 | Getting your latest fixes | ❌ re-zip and re-send | ✅ `git pull` |
 | History / review | ❌ none | ✅ full history, diffs, PRs |
 
+**This repo:** `https://github.com/psalgaonkar7/MSC.git` (private). It was previously named
+`.../Local.git`; GitHub still redirects that name, but update any old remote with
+`git remote set-url origin https://github.com/psalgaonkar7/MSC.git`.
+For access, contact Pratikesh Salgaonkar.
+
 If a shared folder/zip is genuinely your only option, **always delete
 `storageState.json`** (and any Postman JSON files) from the copy before sending it —
 those are login credentials, not code.
 
 `.gitignore` already excludes `node_modules/`, `storageState.json`, Postman
 environment files, `report/`, `test-results/`, and one-off diagnostic scripts.
+
+---
+
+## Troubleshooting
+
+### "Everything timed out" — check the login FIRST
+
+**By far the most common failure**, and it does not look like a login problem. An expired
+session produces *opaque timeouts across every test* — pre-flight waiting 30s for the
+connectivity heading, the POS check burning 5 minutes, every pass failing on
+`locator.click: Timeout 20000ms exceeded`. The browser is actually sitting on:
+
+> ⚠ *You tried to access a page that requires authentication, please sign in.*
+
+The tell is the **shape**: everything fails, including the very first check, and each
+failure is a plain timeout with no portal error text. A real carrier or portal problem
+fails *selectively* — some sectors pass, some do not.
+
+Ten seconds of checking beats ten minutes of a doomed run:
+
+```bash
+node check-login.js
+# LOGIN: VALID (logged in)          -> good, run the sanity
+# LOGIN: EXPIRED (needs npm run auth)
+```
+
+Fix by re-capturing your own session — this opens a real browser and **you** sign in;
+no script ever types or stores your password:
+
+```bash
+npm run auth
+```
+
+`storageState.json` lasts roughly a few hours of inactivity, so an overnight gap almost
+always means re-authenticating. Do **not** run `npm run auth` while a sanity run is going
+— they share the account.
+
+### Killing a stuck run
+
+Closing the terminal or killing the wrapper does **not** stop the Playwright children —
+they orphan and keep driving the shared account, which will corrupt the next run. Kill the
+whole tree:
+
+```powershell
+$all = Get-CimInstance Win32_Process
+$procs = $all | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'run-sanity|playwright' }
+function Get-Tree($id) { foreach ($k in ($all | Where-Object { $_.ParentProcessId -eq $id })) { Get-Tree $k.ProcessId }; $id }
+$ids = $procs | ForEach-Object { Get-Tree $_.ProcessId } | Select-Object -Unique
+$ids | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+```
+
+Then confirm nothing survived before starting again:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -match 'run-sanity|playwright' }
+```
+
+### A sector reports ERROR
+
+Read the error text — it names **every route tried** and the last reason, because a sector
+is only failed once all 3–6 of its routes have failed. `NO RESULTS` on every route means
+the carrier is genuinely not sellable anywhere we look; a mix usually means something
+transient. Check whether the carrier is already on the connectivity flag list first — a
+flagged carrier is reported as `EXPECTED (carrier flagged)`, not a regression.
+
+### A pass reports ERROR but the others pass
+
+Check the portal's own banner in the failure screenshot under `test-results/`. When it
+reads *"Results are incomplete due to missing products"* and names product codes, that is
+a **platform-side product gap**, not an automation fault — nothing in this repo can fix it,
+and it should be raised with the pass/product team. The Eurail Global Pass has been in
+exactly this state since 2026-09-10.
+
+### After editing `data/journeys.js`
+
+Always run both gates, or a broken route will sit there silently failing:
+
+```bash
+npm run verify-routes                 # portal autocomplete + right country
+LH_ONLY=production npm run api        # the ODs still return products
+```
 
 ---
 
