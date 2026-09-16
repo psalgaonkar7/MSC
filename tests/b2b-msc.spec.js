@@ -322,8 +322,23 @@ test('B2B: build carts and capture booking references (none expired)', async ({ 
             { ...item.spec, routeLabel: 'primary' },
             ...(item.spec.alternates || []).map((a, i) => ({ ...item.spec, ...a, routeLabel: `fallback ${i + 1}` })),
           ];
+
+          // Some services do not run every night, and for those an alternate ROUTE is no help
+          // at all — the whole service is absent that day, so every route fails together.
+          // EUROPEAN SLEEPER does not run on Saturdays on the Brussels-Berlin axis: verified
+          // 2026-09-16 over 14 consecutive dates, offered on 12, and the only two misses were
+          // both Saturdays. Since the run searches a moving target (+45 days), that lands on a
+          // non-service day roughly once a week and dropped the sector every time.
+          // `nonDaily` carriers therefore retry the WHOLE route list on the next day(s).
+          const dates = [DATE];
+          if (item.spec.nonDaily) {
+            for (let k = 1; k <= 2; k++) dates.push(H.futureDate(data.daysAhead + k));
+          }
+          const attempts = [];
+          for (const d of dates) for (const r of routes) attempts.push({ route: r, date: d });
+
           let placed = null, lastReason = null;
-          for (const [ri, route] of routes.entries()) {
+          for (const [ri, { route, date }] of attempts.entries()) {
             try {
               // Get back to a usable search form before every attempt, not just the first:
               // a failed attempt can leave us on a results page or mid-flow.
@@ -332,12 +347,12 @@ test('B2B: build carts and capture booking references (none expired)', async ({ 
                 await page.goto('/home');
                 await page.locator(H.SEL.from).first().waitFor({ state: 'visible', timeout: 40000 });
               }
-              await H.searchJourney(page, route, DATE);
+              await H.searchJourney(page, route, date);
               if (await H.resultCount(page) === 0) { lastReason = 'NO RESULTS'; continue; }
               let slug = null;
               if (item.spec.carrierSlug) ({ slug } = await H.addFareForCarrier(page, item.spec.carrierSlug));
               else await H.addFirstStandardToCart(page);
-              placed = { slug, route };
+              placed = { slug, route, date };
               break;
             } catch (err) {
               lastReason = String(err).split('\n')[0];
@@ -348,11 +363,12 @@ test('B2B: build carts and capture booking references (none expired)', async ({ 
           if (!placed) {
             // Every route failed — now it is a real finding, not a route quirk.
             const tried = routes.map((r) => `${r.from.q}->${r.to.q}`).join(' | ');
+            const overDates = dates.length > 1 ? ` on each of ${dates.length} dates (${dates.join(', ')})` : '';
             report.sectors.push({
               id: item.id, carrier: item.carrier,
               status: flaggedItem ? 'EXPECTED (carrier flagged)' : (lastReason === 'NO RESULTS' ? 'NO RESULTS' : 'ERROR'),
-              error: `all ${routes.length} route(s) failed (${tried}); last: ${lastReason}`,
-              routesTried: routes.length, order: b + 1,
+              error: `all ${routes.length} route(s) failed${overDates} (${tried}); last: ${lastReason}`,
+              routesTried: routes.length, datesTried: dates.length, order: b + 1,
             });
             const st = flaggedItem ? 'EXPECTED (carrier flagged)' : (lastReason === 'NO RESULTS' ? 'NO RESULTS' : 'ERROR');
             console.log(`[booking] ${item.carrier} did NOT add [${st}] after ${routes.length} route(s): ${String(lastReason).slice(0, 100)}`);
@@ -365,6 +381,10 @@ test('B2B: build carts and capture booking references (none expired)', async ({ 
             continue;
           }
 
+          const usedOtherDate = placed.date !== DATE;
+          if (usedOtherDate) {
+            console.log(`[booking] ${item.carrier}: no service on ${DATE}, sold on ${placed.date}`);
+          }
           const usedFallback = placed.route.routeLabel !== 'primary';
           if (usedFallback) {
             console.log(`[booking] ${item.carrier}: primary route failed, succeeded on ${placed.route.routeLabel} (${placed.route.from.q}->${placed.route.to.q})`);
@@ -372,7 +392,7 @@ test('B2B: build carts and capture booking references (none expired)', async ({ 
           report.sectors.push({
             id: item.id, carrier: item.carrier, status: 'IN CART', slug: placed.slug,
             route: `${placed.route.from.q}->${placed.route.to.q}`,
-            usedFallback: usedFallback || undefined, order: b + 1,
+            usedFallback: usedFallback || undefined, usedDate: usedOtherDate ? placed.date : undefined, order: b + 1,
           });
         }
         inThisCart++;

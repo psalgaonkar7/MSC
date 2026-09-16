@@ -112,7 +112,16 @@ const DATA = {
     // (only sncb + eurostar), so the sector always failed as "carrier not offered". European
     // Sleeper's Brussels-Amsterdam-Berlin night train IS sold on the Berlin leg — verified live:
     // Bruxelles->Berlin returns 19 results including the european_sleeper logo.
+    // nonDaily: this is a night train that does NOT run every night — on the Brussels-Berlin
+    // axis it does not run on Saturdays. Verified 2026-09-16 against production over 14
+    // consecutive dates: offered on 12, and the only two misses were both Saturdays. All three
+    // routes below DO sell it on a service day (re-verified on Mon/Wed/Fri), so an alternate
+    // ROUTE is no help here — when the service is not running they all fail together, which is
+    // exactly what dropped this sector on 2026-09-16 (travel date landed on Sat 31 Oct).
+    // The booking test therefore retries the whole route list on the next 2 days for nonDaily
+    // carriers. Do not "fix" this by adding more routes; the axis is not the problem.
     { id: 16, carrier: 'EUROPEAN SLEEPER', connectivityNames: ['EUROPEAN SLEEPER'], carrierSlug: 'european_sleeper',
+      nonDaily: true,
       fromCode: 'BE:brussels_midi', toCode: 'DE:berlin',
       from: { q: 'Bruxelles', opt: 'Bruxelles/Brussels-Midi, Belgium' },      to: { q: 'Berlin',    opt: 'Berlin, Germany' } },
     { id: 17, carrier: 'LEO EXPRESS',      connectivityNames: ['LEO EXPRESS'],      carrierSlug: 'leo_express',
