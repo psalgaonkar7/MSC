@@ -106,7 +106,13 @@ async function checkSlack() {
   }
   if (/^https:\/\/hooks\.slack\.com\/services\//.test(hook)) {
     try {
-      const r = await fetch(hook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(20000) });
+      // Body must be a JSON object with at least one key, or Slack can't tell "valid but no
+      // text" from "couldn't parse this at all" and answers "invalid_payload" either way —
+      // confirmed empirically against a real webhook 2026-09-27: {} -> invalid_payload,
+      // non-JSON -> invalid_payload, GET with no body -> invalid_payload, but a harmless
+      // one-key object -> no_text. Sending literal '{}' here made a genuinely working webhook
+      // report as NOT WORKING.
+      const r = await fetch(hook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"probe":true}', signal: AbortSignal.timeout(20000) });
       const body = (await r.text()).trim();
       if (r.status === 400 && body === 'no_text') {
         console.log(`Slack webhook: WORKING — classic incoming webhook ${mask(hook)} is live. Nothing was posted.`);
