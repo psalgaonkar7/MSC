@@ -432,10 +432,18 @@ handling with your security team. Not required for day-to-day on-demand use.
 | Getting your latest fixes | ❌ re-zip and re-send | ✅ `git pull` |
 | History / review | ❌ none | ✅ full history, diffs, PRs |
 
-**This repo:** `https://github.com/psalgaonkar7/MSC.git` (private). It was previously named
-`.../Local.git`; GitHub still redirects that name, but update any old remote with
+**This repo:** `https://github.com/psalgaonkar7/MSC.git` — **currently public** (checked
+2026-09-27: GitHub serves it to an anonymous, unauthenticated request). It was previously
+named `.../Local.git`; GitHub still redirects that name, but update any old remote with
 `git remote set-url origin https://github.com/psalgaonkar7/MSC.git`.
 For access, contact Pratikesh Salgaonkar.
+
+⚠️ **No secret has ever been committed here** (checked across every commit, not just the
+current tree), but the code itself names internal endpoints, account/profile identifiers
+and a POS number, which a public repo hands to anyone. Whether that's acceptable — and
+whether company policy allows this code on a personal GitHub account at all — needs a
+human decision, not a default. Make it **Private** under repo **Settings → Danger Zone →
+Change visibility** unless that's been explicitly decided otherwise.
 
 If a shared folder/zip is genuinely your only option, **always delete
 `storageState.json`** (and any Postman JSON files) from the copy before sending it —
@@ -443,6 +451,15 @@ those are login credentials, not code.
 
 `.gitignore` already excludes `node_modules/`, `storageState.json`, Postman
 environment files, `report/`, `test-results/`, and one-off diagnostic scripts.
+
+**On ad-hoc SR-investigation scripts and dumps:** this folder tends to accumulate one-off
+files from investigating individual SRs (`check-sr*.js`, `booking*.json`, `rows_*.json`,
+`repro-*`, `xlsx_extract/`, and similar) — a 2026-09-27 review found 257 of them, 108
+containing real customer data: emails, names, phone numbers, booking references. None of
+those has ever been committed, and `.gitignore` now blocks the common name patterns so a
+bulk `git add .`/`git add -A` can't sweep them in — but that list can't anticipate every
+future filename. Treat that as a safety net, not a substitute for checking `git status`
+before committing, and prefer investigating SRs in a location outside this repo entirely.
 
 ---
 

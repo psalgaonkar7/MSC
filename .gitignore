@@ -18,3 +18,28 @@ run-history.jsonl
 weekly-report.md
 *.log
 !.env.example
+
+# --- SR investigation scratch files (2026-09-27 security review) -----------------------
+# One-off scripts and JSON/PNG dumps pulled from CloudWatch/Salesforce while investigating
+# individual SRs. These commonly contain customer PII (names, emails, phone numbers, DOB)
+# and must NEVER be committed here — this repo is public on GitHub. If one is ever worth
+# keeping permanently, `git add -f` it deliberately; don't loosen these patterns to "just
+# commit one". Move investigation output to a location outside this repo instead.
+/booking*.json
+/block_*.json
+/check-sr*.js
+/check-payment*.js
+/dump_*.js
+/extract*.js
+/find_*.js
+/group-*.json
+/parse*.js
+/pax-to-cancel*
+/pull-*.js
+/repro-*
+/rows_*.json
+/sr[0-9]*.json
+/sr[0-9]*.png
+/summarize_*.js
+/trace_*.js
+/xlsx_extract/
