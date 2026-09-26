@@ -215,6 +215,150 @@ merge conflicts.
 
 ---
 
+## Extra checks, Slack post and the sanity mail
+
+`npm run sanity` covers the rest of the team's sanity mail as well, in the same run and with no
+extra time: the extra checks run in parallel with the browser suite.
+
+### Extra checks (`extra-checks.js`)
+
+| Mail item | How it is checked | OK means |
+|---|---|---|
+| Primer Status Page | `status.primer.io` public Statuspage API | overall "none", every component operational, no open incident. Maintenance in progress or in the next 24 h is shown as a note |
+| Group Bookings–Salesforce Sync | AWS CLI (`era-prod` SSO profile) → AppFlow `tf-era-prod-shared-salesforce-flow` | flow Active and **no failed execution since the previous sanity** |
+| Key account China | browser loads `www.era.raileurope.cn` | the sign-in page actually renders |
+| Customer care China | browser loads `www.customercare.raileurope.cn` | the sign-in page actually renders |
+| SF cases not linked with an SR | Salesforce CLI → the *Technical HD view* list view | the count of cases in that view |
+
+Three things that are easy to get wrong, and why the checks are built the way they are:
+
+- **AppFlow is event-triggered**, fired by the Salesforce platform event
+  `Case_And_Itinerary__e` — not scheduled. A long gap between runs just means no group-booking
+  events arrived, so "last run was hours ago" is not a failure. Only a *failed* execution is.
+- **Both China portals answer HTTP 200 with a bare "Loading" shell** whether or not the app
+  works, so the check waits for the sign-in form to render. It proves the portal is up; it does
+  not log in, and the mail says so.
+- **The China check must not use `blockNoise()`.** It speeds up the `.com` portal, but the
+  key-account `.cn` portal never finishes booting without the analytics hosts it blocks —
+  stuck on "Loading" with it, sign-in form in ~5 s without it. Using it would report that
+  portal as down on every run.
+
+Every check degrades to **SKIPPED** with a one-line fix when a login it depends on has expired
+— never a false OK and never a false NOT OK. Skipped items appear as `[check manually]` in the
+mail. Run them on their own with `node extra-checks.js`.
+
+### Slack post (`notify.js`)
+
+At the end of a run it posts the team's format to **#sd_24-7**:
+
+```
+Sanity done 00:00 IST- K070439139, K442252781
+```
+
+The time is the **slot**, not the finish time: the run's start rounded to the nearest hour in
+IST (a run started at 23:58 or 00:03 is the 00:00 slot). Force a slot with `MSC_SLOT=HH:MM`.
+
+It posts **only** when the run is real and complete. It does not post when:
+
+- the browser suite did not finish (the booking report is not from this run)
+- no booking reference was captured, or an order had expired items
+- it was a partial run (`MSC_MAX_SECTORS`) — only full runs are announced
+- that slot was already posted (so a re-run in the same slot does not post twice)
+
+In every one of those cases it prints the reason instead, and it always prints the line itself,
+so you can post by hand if you need to.
+
+**Setup, once — get a webhook URL for #sd_24-7.** Either kind works; try the first, since it
+often needs no admin:
+
+1. **Workflow Builder webhook** (`https://hooks.slack.com/triggers/...`). In Slack, create a new
+   workflow that **starts from a webhook**, give it one variable named **`text`**, and add a
+   *Send a message to a channel* step to #sd_24-7 whose message is that `text` variable.
+   Publish it and copy the webhook URL. Whether this option is available depends on your
+   workspace's workflow permissions; the creator must be a member of #sd_24-7.
+2. **Classic incoming webhook** (`https://hooks.slack.com/services/...`). Create a Slack app at
+   api.slack.com/apps, turn on *Incoming Webhooks*, and add a webhook for #sd_24-7. Most
+   workspaces send this to a Slack admin for approval.
+
+Put the URL in `.env` (copy `.env.example`):
+
+```
+SLACK_WEBHOOK_URL=https://hooks.slack.com/...
+```
+
+Then confirm it works:
+
+```bash
+npm run check-slack
+```
+
+For a classic webhook this is a real test that **posts nothing**: a live webhook rejects the
+empty test payload with `no_text`, while a revoked or mistyped one answers differently. A
+Workflow Builder webhook cannot be tested without posting (any call runs the workflow), so only
+its format is checked and the first real run confirms it.
+
+The two kinds acknowledge differently (`ok` vs `{"ok":true}`) — both are handled.
+
+`.env` is git-ignored. Treat the webhook URL as a secret — anyone who has it can post to the
+channel. Until it is set, the run prints the Slack line and says it was not posted.
+
+`MSC_NO_SLACK=1` skips posting for a run.
+
+### The sanity mail (never sent automatically)
+
+The run builds the full mail from its own results, then:
+
+1. copies it to the clipboard **formatted**, with the numbered list and links
+2. opens a new **Outlook compose window** with the subject filled in, e.g.
+   `B2B & B2C Sanity Check - OK [27/09/2026; 00:00 IST] K070439139, K442252781`
+
+Click in the body, press **Ctrl+V**, review, press **Send**. It is never sent for you: it goes
+to a distribution list and includes judgement calls, so a person presses Send.
+
+Honesty rules built into the draft:
+
+- Anything the run did **not** verify is written as **`[check manually]`**, never as OK — the
+  SBB status page is always left to you, and SF cases are until the Salesforce CLI is set up.
+- The subject says `NOT OK` if any automated item failed.
+- Connectivity carriers flagged >15 min are listed under item 2 **for your review** rather
+  than turning it into NOT OK — whether they matter is the team's call, not the script's.
+- B2C is written as `OK (API)` because the website itself blocks automated browsers; what is
+  verified is the B2C search engine.
+
+The draft is also saved to `report/sanity-mail.html` and `report/sanity-mail.txt`.
+`MAIL_TO` in `.env` pre-fills the To: line. `MSC_NO_MAIL=1` skips opening the draft.
+
+Why a compose window and not a finished draft in the Drafts folder: only **classic** Outlook
+can be automated that way, and this machine runs **new** Outlook.
+
+### SF cases — one-time setup (optional)
+
+The count needs the Salesforce CLI and a login **you** do once in your browser; no password
+ever passes through a script:
+
+```bash
+npm install -g @salesforce/cli
+sf org login web --alias re-prod
+```
+
+**Current status: blocked on Salesforce admin approval.** On 2026-09-27 the login was refused
+with `OAUTH_APPROVAL_ERROR_GENERIC`. OAuth itself works in the org (admin-installed apps such as
+*Atlassian Links* log in fine), so the refusal is specific to the Salesforce CLI app — a
+Salesforce admin has to approve it for the user's profile. Retrying the login will not help.
+Until then item 9 stays `[check manually]`; nothing else is affected.
+
+Once approved, item 9 fills itself in. It reads the *Technical HD view* list view directly, so it
+always matches what you see in Salesforce. **Deciding whether a case needs an SR stays with
+you** — the run counts and lists the cases, it does not judge them. If the login lapses the
+item goes back to `[check manually]` with the command to re-run.
+
+### Also needs a live login
+
+- **AWS SSO** for the AppFlow check. When it expires the item is skipped with:
+  `aws sso login --sso-session era`
+
+---
+
 ## Runtime (measured)
 
 Measured on the 2026-09-12 22:00 run (19/19 sectors, 2 booking references, 0 expired):
@@ -415,6 +559,9 @@ LH_ONLY=production npm run api        # the ODs still return products
 - ✅ Login credentials are never typed into, stored by, or logged by any script
 - ✅ Connectivity issues are **flagged for manual review only** — nothing is auto-sent
   to Teams, email, or a ticketing system
+- ✅ The **sanity mail is never sent automatically** — it opens as a draft for a person to
+  review and send. The only thing posted automatically is the one-line Slack completion
+  notice, and only for a complete run with booking references
 - ✅ The SNCF Connect POS check is **search-only**, and always switches the POS back
   explicitly (navigating away does **not** reset it — it's an account-level setting)
 
@@ -436,6 +583,9 @@ tools/verify-station-labels.js read-only check that every route in data/journeys
                                typed into the portal autocomplete AND lands in the right
                                country — `npm run verify-routes`
 api-searchability.js       read-only LocoHub API check, staging + production
+extra-checks.js            Primer, AppFlow (Group Bookings–SF sync), China portals, SF cases — in parallel
+notify.js                  end of run: Slack post to #sd_24-7 + the sanity mail draft (never auto-sent)
+.env.example               template for .env (Slack webhook, mail To:, SF alias) — .env itself is git-ignored
 run-sanity.js              orchestrates: browser suite ‖ API check -> deck refresh -> history log -> summary
 print-summary.js           human-readable end-of-run summary (also runnable standalone)
 log-run.js                 appends one summary line per run to run-history.jsonl

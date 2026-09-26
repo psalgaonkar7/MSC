@@ -81,6 +81,24 @@ script you run. Note `npm auth` is not a valid command; it must be `npm run auth
    Runs **in parallel** with the browser suite. Also how B2C's engine is validated, since
    B2C itself is anti-bot blocked.
 3. **Manager deck** (`deck/gen.js`) and **run history** (`log-run.js` → `npm run weekly`).
+4. **Extra checks** (`extra-checks.js`, in parallel): Primer status API, AppFlow
+   `tf-era-prod-shared-salesforce-flow` (Group Bookings–SF sync), both China portals, and the
+   SF *Technical HD view* case count. Each degrades to SKIPPED with a fix when a login lapses.
+5. **Slack + mail** (`notify.js`, last step): posts `Sanity done HH:MM IST- <refs>` to
+   #sd_24-7 via `SLACK_WEBHOOK_URL` in `.env`, and opens the sanity mail as an Outlook draft.
+
+### Rules for the Slack post and the mail — do not weaken these
+
+- The mail is **never sent automatically**. It opens as a compose window; a person sends it.
+  Do not add SMTP/Graph sending.
+- Slack posts **only** for a complete run with booking references, once per slot. Never loosen
+  `shouldPost()` so a failed or partial run announces "Sanity done".
+- Never write `OK` for something the run did not verify — it is `[check manually]`.
+- When testing, use `node notify.js --dry-run` or set `MSC_NO_SLACK=1` / `MSC_NO_MAIL=1`.
+  Do not post test messages to #sd_24-7: it is the team's live channel.
+- AppFlow is **event**-triggered — "no recent run" is not a failure; only a failed run is.
+- The China check must **not** use `blockNoise()` — the key-account `.cn` portal never boots
+  without the hosts it blocks, so it would read as down on every run.
 
 ## Fallback routes — read before reporting a sector as failed
 

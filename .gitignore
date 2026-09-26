@@ -17,3 +17,4 @@ playwright-report/
 run-history.jsonl
 weekly-report.md
 *.log
+!.env.example

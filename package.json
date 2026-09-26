@@ -14,7 +14,8 @@
     "log": "node log-run.js",
     "weekly": "node weekly-report.js",
     "report": "playwright show-report report/html",
-    "verify-routes": "node tools/verify-station-labels.js"
+    "verify-routes": "node tools/verify-station-labels.js",
+    "check-slack": "node notify.js --check-slack"
   },
   "keywords": [
     "raileurope",

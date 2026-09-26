@@ -29,19 +29,27 @@ function startBackground(cmd) {
   // themselves must stay strictly serial — they all share ONE account/cart/POS, which is why
   // playwright.config.js pins `workers: 1`. Overlapping them corrupts the run.
   // Its output is buffered and printed in order afterwards, so the logs stay readable.
-  console.log('\n=== 1/4 · B2B browser suite (serial — shared account)  ‖  API searchability (in parallel) ===\n');
+  // The extra checks (Primer, AppFlow, China portals, SF cases) are also independent of the
+  // B2B account — the China check uses its own browser on the .cn domains — so they run in
+  // parallel too, and add no time to the run.
+  console.log('\n=== 1/5 · B2B browser suite (serial — shared account)  ‖  API searchability + extra checks (in parallel) ===\n');
   const apiPromise = startBackground('node api-searchability.js');
+  const extrasPromise = startBackground('node extra-checks.js');
   const b2b = run('npx playwright test --project=b2b');
 
-  console.log('\n=== 2/4 · API searchability (all ODs · staging + production) ===\n');
+  console.log('\n=== 2/5 · API searchability (all ODs · staging + production) ===\n');
   const apiRes = await apiPromise;
   process.stdout.write(apiRes.out);
   const api = apiRes.code;
 
-  console.log('\n=== 3/4 · Refresh manager deck from this run ===\n');
+  console.log('\n=== 3/5 · Extra checks (Primer · AppFlow · China portals · SF cases) ===\n');
+  const extrasRes = await extrasPromise;
+  process.stdout.write(extrasRes.out); // informational: never changes the run's exit code
+
+  console.log('\n=== 4/5 · Refresh manager deck from this run ===\n');
   const deck = run('node deck/gen.js'); // never blocks the run result; just a warning if the .pptx is open
 
-  console.log('\n=== 4/4 · Log this run to run-history.jsonl (for the weekly report) ===\n');
+  console.log('\n=== 5/5 · Log this run to run-history.jsonl (for the weekly report) ===\n');
   run('node log-run.js'); // always logs — even a failed/partial run — so the weekly report stays complete
 
   // Human-readable summary (booking refs, per-check table, sectors, connectivity flags, API
@@ -50,6 +58,9 @@ function startBackground(cmd) {
 
   // Deck refresh is silent on success — only shout if it couldn't update (needs attention).
   const deckNote = deck === 0 ? '' : '  ·  ⚠ DECK NOT UPDATED — close Rail-Europe-MSC-Automation-Overview.pptx and run `npm run deck`';
+  // Slack post (#sd_24-7, only for a complete run) + the sanity mail draft (never auto-sent).
+  run('node notify.js');
+
   console.log(`=== sanity done · browser ${b2b === 0 ? 'PASS' : 'FAIL'} · api ${api === 0 ? 'PASS' : 'FAIL'} ===${deckNote}`);
   process.exit(b2b || api ? 1 : 0);
 })();
