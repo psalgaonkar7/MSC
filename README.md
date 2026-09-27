@@ -357,6 +357,20 @@ item goes back to `[check manually]` with the command to re-run.
 - **AWS SSO** for the AppFlow check. When it expires the item is skipped with:
   `aws sso login --sso-session era`
 
+  This is a real gap, not a bug: `aws sts get-caller-identity` genuinely cannot authenticate
+  without it, so the item reports `[check manually]` rather than an unverified OK — same
+  honesty rule as everything else in the mail. There is no local override for how long the
+  session lasts (checked `~/.aws/config`: the `[sso-session era]` block sets no duration —
+  it's whatever Rail Europe's AWS Identity Center admin has configured), so it will keep
+  expiring on its own schedule.
+
+  **Decided 2026-09-27: re-run the login once a day when it lapses, rather than switch to a
+  durable IAM access key.** A long-lived key would remove the daily login, but introduces
+  another secret needing the same never-commit/rotate discipline as the Slack webhook, for
+  one check. Revisit only if the daily interruption becomes a real problem — the fix then is
+  a read-only IAM key scoped to `appflow:DescribeFlow` + `appflow:DescribeFlowExecutionRecords`
+  in `.env`, which needs IAM permissions on `era-prod` neither of us has confirmed access to.
+
 ---
 
 ## Runtime (measured)
