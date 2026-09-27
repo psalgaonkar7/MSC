@@ -68,6 +68,11 @@ yourself (credential entry is off-limits) — tell the user to run `npm run auth
 opens a headed browser for **them**. Their password is never typed by or stored in any
 script you run. Note `npm auth` is not a valid command; it must be `npm run auth`.
 
+`npm run auth` now also opens a browser step for AWS SSO (`era`) first, since that check
+in `extra-checks.js` needs its own separate login — skipping/cancelling that step is fine,
+it never blocks the B2B login that follows. If only the B2B session needs refreshing, tell
+them `npm run auth:b2b` instead, which skips the AWS step entirely.
+
 ## What it checks
 
 1. **B2B browser suite** (`tests/b2b-msc.spec.js`, `tests/b2b-passes.spec.js`):

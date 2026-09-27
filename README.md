@@ -152,6 +152,15 @@ Override with `MSC_MAX_ITEMS_PER_ORDER` if the portal's limit changes.
    Saves `storageState.json` locally. **This file is your live login session —
    never share it, never commit it** (it's already git-ignored). Re-run `npm run auth`
    whenever the session expires (roughly every few hours of inactivity).
+
+   This also opens your browser first for **AWS SSO** (`aws sso login --sso-session era`)
+   — needed only for the Group Bookings-Salesforce Sync mail item. Skipping or cancelling
+   that step is fine; it never blocks the B2B login below it, and that item just reads
+   `[check manually]` until it's done. Its session expires on its own separate schedule
+   (there's no override for how long — see "Also needs a live login" further down), so
+   expect to redo just that part more often than the B2B login. To refresh only one side
+   without the other: `npm run auth:b2b` does just the B2B browser login (skips AWS
+   entirely), and running `aws sso login --sso-session era` directly does just AWS.
 4. **(Optional) Point at your own Postman exports**, only needed for the API check
    (`npm run api` / check #6). Set an environment variable to your own exported
    Postman environment folder:
@@ -182,7 +191,8 @@ npm run api      # read-only API searchability, staging + production
 npm run deck     # rebuild the manager PowerPoint from the latest report (close the .pptx first if open)
 npm run weekly   # compile run-history.jsonl into weekly-report.md
 npm run report   # open the Playwright HTML report
-npm run auth     # re-do the login capture when your session expires
+npm run auth     # AWS SSO (era) then the B2B login capture — re-do when a session expires
+npm run auth:b2b # just the B2B login capture, skips AWS SSO
 npm run verify-routes   # check every route in data/journeys.js is typeable in the portal
 node check-login.js     # ~10s: is the saved session still valid? run this BEFORE a long run
 ```
@@ -355,7 +365,8 @@ item goes back to `[check manually]` with the command to re-run.
 ### Also needs a live login
 
 - **AWS SSO** for the AppFlow check. When it expires the item is skipped with:
-  `aws sso login --sso-session era`
+  `aws sso login --sso-session era` — also included as the first step of `npm run auth`,
+  which is the easier way to remember it day to day.
 
   This is a real gap, not a bug: `aws sts get-caller-identity` genuinely cannot authenticate
   without it, so the item reports `[check manually]` rather than an unverified OK — same
@@ -506,6 +517,10 @@ no script ever types or stores your password:
 ```bash
 npm run auth
 ```
+
+This opens **two** browser steps in turn: AWS SSO first (skip/cancel it if you only came
+here for the B2B session — it never blocks what comes next), then the B2B login itself.
+To go straight to the B2B step alone, use `npm run auth:b2b` instead.
 
 `storageState.json` lasts roughly a few hours of inactivity, so an overnight gap almost
 always means re-authenticating. Do **not** run `npm run auth` while a sanity run is going
