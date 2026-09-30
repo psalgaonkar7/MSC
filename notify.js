@@ -65,7 +65,11 @@ const refs = (b2b.bookings || []).map((b) => b.ref).filter(Boolean);
 const { slot, date, key } = slotInfo();
 
 // --- Slack --------------------------------------------------------------------------------
-function shouldPost() {
+// Shared with buildItems() below, so the mail's booking-suite line and the Slack post gate
+// use exactly one definition of "this run's booking suite didn't actually complete" — see
+// the 2026-09-30 gap: the mail's OK/KO status never checked this, so a run that timed out
+// with zero booking references still went out with subject "... - OK" and no other tell.
+function bookingIssues() {
   const why = [];
   const runId = process.env.MSC_RUN_ID;
   if (runId && b2b.runId !== runId) why.push('the booking report is not from this run (the browser suite did not finish)');
@@ -74,6 +78,11 @@ function shouldPost() {
   if (process.env.MSC_MAX_SECTORS || (b2b.sectorsTotal && b2b.sectorsTotal < data.ptpJourneys.length)) {
     why.push(`partial run (${b2b.sectorsTotal} of ${data.ptpJourneys.length} sectors) — only full runs are announced`);
   }
+  return why;
+}
+
+function shouldPost() {
+  const why = bookingIssues();
   let posted = {};
   try { posted = JSON.parse(fs.readFileSync(POSTED, 'utf8')); } catch {}
   if (posted[key]) why.push(`already posted for ${key} IST (at ${posted[key]}) — set MSC_SLOT to post a different slot`);
@@ -169,13 +178,12 @@ async function postSlack(text) {
 const MANUAL = '[check manually]';
 const TRACKER = process.env.SANITY_TRACKER_URL
   || 'https://raileuropegroupe.sharepoint.com/:x:/r/sites/msteams_a1643b/_layouts/15/Doc.aspx?sourcedoc=%7B249BB009-BF41-4D32-8AA2-83A53B899359%7D&file=Sanity%20Tracker.xlsx&action=default&mobileredirect=true';
-const SBB = 'https://smapi-ticketing-status.app.sbb.ch/check/status';
 
 function fromExtra(r, okText = 'OK') {
   if (!r || extras.runId && process.env.MSC_RUN_ID && extras.runId !== process.env.MSC_RUN_ID) return { v: MANUAL, ok: null, note: 'not checked this run' };
   if (r.status === 'OK') return { v: okText, ok: true };
   if (r.status === 'SKIPPED') return { v: MANUAL, ok: null, note: r.detail };
-  return { v: 'NOT OK', ok: false, note: r.detail };
+  return { v: 'KO', ok: false, note: r.detail };
 }
 
 function buildItems() {
@@ -183,19 +191,19 @@ function buildItems() {
   const testable = prod && (prod.summary.testable != null ? prod.summary.testable : prod.rows.length);
   const b2c = !prod ? { v: MANUAL, ok: null, note: 'API check did not run' }
     : prod.summary.pass === testable ? { v: 'OK (API)', ok: true }
-      : { v: 'NOT OK', ok: false, note: `${testable - prod.summary.pass}/${testable} production API routes failing` };
+      : { v: 'KO', ok: false, note: `${testable - prod.summary.pass}/${testable} production API routes failing` };
 
   const rows = b2b.connectivityRows || [];
   const unmapped = (b2b.coverage && b2b.coverage.unmapped) || [];
   const flagged = (b2b.connectivityEscalations || []).map((x) => x.carrier);
-  const conn = !rows.length ? { v: 'NOT OK', ok: false, note: 'connectivity page was not read' }
-    : unmapped.length ? { v: 'NOT OK', ok: false, note: 'unmapped carrier: ' + unmapped.join(', ') }
+  const conn = !rows.length ? { v: 'KO', ok: false, note: 'connectivity page was not read' }
+    : unmapped.length ? { v: 'KO', ok: false, note: 'unmapped carrier: ' + unmapped.join(', ') }
       : { v: 'OK', ok: true, note: flagged.length ? 'flagged >15 min, for your review: ' + flagged.join(', ') : null };
 
   const pos = b2b.sncfPos || [];
   const sncf = !pos.length ? { v: MANUAL, ok: null, note: 'SNCF check did not run' }
     : pos.every((r) => r.result === 'PASS') ? { v: 'OK', ok: true }
-      : { v: 'NOT OK', ok: false, note: pos.filter((r) => r.result !== 'PASS').map((r) => `${r.od} ${r.result}`).join(', ') };
+      : { v: 'KO', ok: false, note: pos.filter((r) => r.result !== 'PASS').map((r) => `${r.od} ${r.result}`).join(', ') };
 
   const primer = fromExtra(extras.primer);
   if (extras.primer && extras.primer.maintenance && extras.primer.maintenance.length) {
@@ -221,7 +229,6 @@ function buildItems() {
     { label: 'Customer care china working', ...fromExtra(extras.chinaCustomerCare, 'OK') },
     { label: 'SNCF :- Check OD', ...sncf },
     { label: 'Primer Status Page', ...primer },
-    { label: 'SBB Status page link', link: SBB, ok: null, manualOnly: true },
     { label: 'SF cases not linked with an SR', sep: ' : ', ...sfItem },
   ];
 }
@@ -230,7 +237,10 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 function buildMail(items) {
   const bad = items.filter((i) => i.ok === false);
-  const status = bad.length ? 'NOT OK' : 'OK';
+  // Not shown as its own numbered line (kept to the 8 standard points), but a booking suite
+  // that didn't finish/capture a reference must still flip the subject to KO — see
+  // bookingIssues(), the same check that gates the Slack post.
+  const status = (bad.length || bookingIssues().length) ? 'KO' : 'OK';
   const subject = `B2B & B2C Sanity Check - ${status} [${date}; ${slot} IST] ${refs.join(', ')}`;
 
   const rowHtml = items.map((it, n) => {

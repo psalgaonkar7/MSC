@@ -254,7 +254,7 @@ Three things that are easy to get wrong, and why the checks are built the way th
   portal as down on every run.
 
 Every check degrades to **SKIPPED** with a one-line fix when a login it depends on has expired
-— never a false OK and never a false NOT OK. Skipped items appear as `[check manually]` in the
+— never a false OK and never a false KO. Skipped items appear as `[check manually]` in the
 mail. Run them on their own with `node extra-checks.js`.
 
 ### Slack post (`notify.js`)
@@ -327,11 +327,18 @@ to a distribution list and includes judgement calls, so a person presses Send.
 
 Honesty rules built into the draft:
 
-- Anything the run did **not** verify is written as **`[check manually]`**, never as OK — the
-  SBB status page is always left to you, and SF cases are until the Salesforce CLI is set up.
-- The subject says `NOT OK` if any automated item failed.
+- Anything the run did **not** verify is written as **`[check manually]`**, never as OK — SF
+  cases are, until the Salesforce CLI is set up.
+- The subject says `KO` if any automated item failed.
 - Connectivity carriers flagged >15 min are listed under item 2 **for your review** rather
-  than turning it into NOT OK — whether they matter is the team's call, not the script's.
+  than turning it into KO — whether they matter is the team's call, not the script's.
+- The subject also flips to `KO` if the booking suite itself didn't reach Traveler Details
+  and capture a reference per order — not shown as its own numbered point (kept to the
+  standard 8), but checked silently via the same gate that blocks the Slack post
+  (`bookingIssues()` in notify.js). Added 2026-09-30 after a run where the browser suite
+  timed out with zero booking references (a real portal-side "not enough seats" error) while
+  every other item still read OK, so the subject alone would have said OK with nothing to
+  show otherwise except the missing reference numbers.
 - B2C is written as `OK (API)` because the website itself blocks automated browsers; what is
   verified is the B2C search engine.
 
