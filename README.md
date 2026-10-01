@@ -464,10 +464,10 @@ handling with your security team. Not required for day-to-day on-demand use.
 | Getting your latest fixes | ❌ re-zip and re-send | ✅ `git pull` |
 | History / review | ❌ none | ✅ full history, diffs, PRs |
 
-**This repo:** `https://github.com/psalgaonkar7/MSC.git` — **currently public** (checked
-2026-09-27: GitHub serves it to an anonymous, unauthenticated request). It was previously
-named `.../Local.git`; GitHub still redirects that name, but update any old remote with
-`git remote set-url origin https://github.com/psalgaonkar7/MSC.git`.
+**This repo:** `https://github.com/psalgaonkar7/Sanity-check.git` — **private**. It was
+previously named `.../Local.git` then `.../MSC.git` (renamed 2026-10-01); GitHub still
+redirects both old names, but update any old remote with
+`git remote set-url origin https://github.com/psalgaonkar7/Sanity-check.git`.
 For access, contact Pratikesh Salgaonkar.
 
 ⚠️ **No secret has ever been committed here** (checked across every commit, not just the

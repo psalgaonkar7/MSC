@@ -1,16 +1,17 @@
-# RE/MSC — Rail Europe Manual Sanity Check automation
+# RE/ASC — Rail Europe Automated Sanity Check automation
 
 Deterministic Playwright replacement for driving the MSC by hand (~28 min, non-deterministic)
 — covers every carrier on the connectivity page in ~5.5 minutes and produces booking references
-as evidence. Git remote: `github.com/psalgaonkar7/MSC.git` (renamed from `Local.git`;
-GitHub still redirects the old name).
+as evidence. Git remote: `github.com/psalgaonkar7/Sanity-check.git` (renamed from `MSC.git`,
+itself renamed from `Local.git`; GitHub still redirects both old names). **Local folder
+renamed `RE/MSC` → `RE/ASC` on 2026-10-01**, matching the GitHub repo rename the same day.
 
 ## Running it
 
 Two lines, from the folder this file is in:
 
 ```
-cd <your clone of this repo>      # on Pratikesh's machine: C:\Claude\RE\MSC
+cd <your clone of this repo>      # on Pratikesh's machine: C:\Claude\RE\ASC
 npm run sanity
 ```
 
